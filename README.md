@@ -2,7 +2,7 @@
 Data and Code for the 2020-2021 SIOP Machine Learning Competition
 
 ### Overview ###
-* [Competition Overview and Awards Presentation](2021_SIOP_Machine_Learning_Winners/2021 SIOP ML Comp Deck.pdf) 
+* [Competition Overview and Awards Presentation](https://github.com/izk8/2021_SIOP_Machine_Learning_Winners/blob/main/2021%20SIOP%20ML%20Comp%20Deck.pdf) 
 
 ### Objective ###
   
