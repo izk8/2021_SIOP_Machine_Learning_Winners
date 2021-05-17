@@ -25,7 +25,7 @@ Private Test Set Overall Score = 62.50
 Brian Costello @ Red Hat
 Private Test Set Overall Score = 61.09  
 
-## Fourth Place: PI-RATES ## 
+## Fourth Place: Go Ahead, Make My Data ## 
 Joshua Prasad @ Colorado State University  
 Private Test Set Overall Score = 60.72  
 
