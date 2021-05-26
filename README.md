@@ -1,5 +1,5 @@
 # 2021 SIOP Machine Learning Competition
-Data and Code for the 2020-2021 SIOP Machine Learning Competition
+Data and Winning Code for the 2020-2021 SIOP Machine Learning Competition
  
 ### Introduction ###
 All important decisions in life involve trade-offs. A potential mate may be stunningly attractive, but what if they are incompatible? You might find the home of your dreams but not in the neighborhood you want.  Making great decisions requires balancing competing criteria and finding the optimal outcome. Hiring is no different. To hire effectively one must not only maximize outcomes for the business but also comply with legal requirements.  This is often called the “diversity-validity trade-off.”  This competition was about developing algorithms that simultaneously maximize business outcomes of job performance and retention while minimizing bias.
