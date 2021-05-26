@@ -12,21 +12,29 @@ The [competition portal](https://eval.ai/web/challenges/challenge-page/527/overv
 [Competition Overview and Awards Presentation](https://github.com/izk8/2021_SIOP_Machine_Learning_Winners/blob/main/2021%20SIOP%20ML%20Comp%20Deck.pdf)
 
 ### First Place: Team Procrustination ###  
-Feng Guo @ BGSU  
-Sam T. McAbee @ BGSU  
-Private Test Set Overall Score = 62.53  
+[Feng Guo](https://www.linkedin.com/in/feng-guo-9591741a/) @ Bowling Green State University  
+[Sam T. McAbee](https://www.linkedin.com/in/samuel-mcabee-b4257013/) @ Bowling Green State University  
+Private Test Set Overall Score = **62.53**  
 
 ### Second Place: Axiom Consulting Partners ### 
-Ian Burke @ Axiom  
-Private Test Set Overall Score = 62.50  
+[Ian Burke](https://www.linkedin.com/in/ian-burke-571352136/) @ Axiom  
+[Ashlyn Lowe](https://www.linkedin.com/in/ashlynlowe/) @ Axiom  
+[Goran Kuljanin](https://www.linkedin.com/in/goran-kuljanin-7b80601a3/) @ DePaul University  
+[Robin Burke](https://www.linkedin.com/in/robin-burke-b878303/) @ The University of Colorado Boulder  
+Private Test Set Overall Score = **62.50**  
 
 ### Third Place: RHDS ###
-Brian Costello @ Red Hat
-Private Test Set Overall Score = 61.09  
+[Brian Costello](https://www.linkedin.com/in/brian-k-costello/) @ Red Hat  
+[Willy Hardy](https://www.linkedin.com/in/willyhardy/) @ Red Hat  
+Private Test Set Overall Score = **61.09**  
 
 ### Fourth Place: Go Ahead, Make My Data ### 
-Joshua Prasad @ Colorado State University  
-Private Test Set Overall Score = 60.72  
+[Joshua Prasad](https://www.linkedin.com/in/joshua-prasad-1121476a/) @ Colorado State University  
+[Steven Raymer](https://www.linkedin.com/in/stevenraymer/) @ Colorado State University  
+[Kelly Cave](https://www.linkedin.com/in/kelly-cave/) @ Colorado State University  
+[Shayln Stevens](https://www.linkedin.com/in/shalynstevens/) @ Colorado State University  
+[Jason Prasad](https://github.com/jjgp) @ Georgia Institute of Technology  
+Private Test Set Overall Score = **60.72**   
 
 
 # Organizers #
