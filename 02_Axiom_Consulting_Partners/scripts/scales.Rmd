@@ -1,0 +1,469 @@
+---
+title: "Scoring Scales"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+## global settings: print syntax
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This script calculates scale scores.
+
+## Load Libraries
+
+Load libraries to calculate scale scores.
+
+```{r, libraries}
+## here for project directory navigation
+library(here)
+
+## tidyverse for data manipulation and plotting
+library(tidyverse)
+
+## Gifi for categorical PCA
+library(Gifi)
+```
+
+## Load Data
+
+Load data to score.
+
+```{r, data}
+### imputed training data
+## save as object
+train_imp <- read_csv(
+  ## file path 
+  here("data", "imputed", "train_sep_mf_all_items.csv")
+)
+
+### imputed training data
+## save as object
+dev_imp <- read_csv(
+  ## file path 
+  here("data", "imputed", "dev_sep_mf_all_items.csv")
+)
+
+### imputed training data
+## save as object
+test_imp <- read_csv(
+  ## file path 
+  here("data", "imputed", "test_sep_mf_all_items.csv")
+)
+```
+
+## Situational Judgment
+
+Score each situational judgment item such that individuals receive a +1 for responding with the most common response and a -1 for responding with the least common response.
+This will create a new variable for each original situational judgment item score (i.e., 18 new variables).
+Sum the converted **SJ_Most** and **SJ_Least** for each item to create 9 new variables.  
+
+```{r}
+### create situational judgment items tibble
+## call data
+sji <- test_imp %>%
+  ## select most and least items
+  select(
+    # choose SJ items
+    starts_with(c("SJ_M", "SJ_L"))
+  )
+
+### calculate proportion of each response
+## save as object
+sji_resp_prop <- map_dfc(
+  # data
+  sji,
+  # function
+  function(item) {
+    # proportions
+    prop.table(
+      # counts
+      table(item)
+    )
+  }
+) %>%
+  ## add variable
+  mutate(
+    # response
+    response = 1:4
+  ) %>% 
+  ## relocate variable
+  relocate(response)
+
+### score sji proportion responses
+## map sji and sji_least_most_freq columns
+sji_score_resp <- map2_df(
+  # actual responses
+  sji, 
+  # proportions
+  sji_resp_prop %>%
+    # select columns
+    select(-response),
+  ## create function
+  function(x, y) {
+    ## define scores
+    case_when(
+      # score first response 
+      x == 1 ~ y[1],
+      # score second response
+      x == 2 ~ y[2],
+      # score third response
+      x == 3 ~ y[3],
+      # score fourth response
+      x == 4 ~ y[4]
+    )
+  }) %>%  
+  ## set names of columns
+  rename_with(
+    # function
+    .fn = paste0, 
+    # columns
+    .cols = everything(),
+    # input
+    "_prop"
+  )
+
+### sum same items
+## map item numbers 
+sji_score_resp_agg <- map_dfc(
+  # variable index
+  as.character(1:9), 
+  ## create function
+  function(ndx) {
+    ## calculate average
+    mean <-
+      # call sji_score
+      sji_score_resp %>% 
+        # select the same items
+        select(contains(ndx)) %>%
+        # sum the items
+        rowMeans(., na.rm = FALSE) 
+    
+    ## calculate sum
+    prod <-
+      # call sji_score
+      sji_score_resp %>% 
+        # select the same items
+        select(contains(ndx)) %>%
+        # add variable
+        mutate(
+          # product
+          prod = .[1]*.[2]
+        ) %>%
+        # extract variable
+        pull(prod) %>%
+        # extract values as vector
+        .[[1]]
+    
+    ## tibble
+    tibble(
+      # mean
+      mean = mean,
+      # product
+      prod = prod
+    )
+  }) %>%
+  ## set names of columns
+  set_names(
+    # paste
+    paste0("SJ_", c("mean_", "prod_"), rep(1:9, each = 2))
+  )
+
+### combine all new variables
+## create data
+sji_score_prop <- bind_cols(
+  # proportions
+  sji_score_resp, 
+  # aggregated proportions
+  sji_score_resp_agg
+)
+
+### identify most and least frequent responses
+## map all sji columns
+sji_least_most_freq <- map_df(sji, 
+  ## create function
+  function(ndx) {
+    # calculate minimum
+    min_res <- as.numeric(names(which.min(table(ndx))))
+    # calculate maximum
+    max_res <- as.numeric(names(which.max(table(ndx))))
+    # return result
+    c(min_res, max_res)
+  })
+
+### score sji
+## map sji and sji_least_most_freq columns
+sji_score <- map2_df(sji, sji_least_most_freq,
+  ## create function
+  function(x, y) {
+    ## define scores
+    case_when(
+      # score when least common 
+      x == y[1] ~ -1,
+      # score when most common
+      x == y[2] ~ 1,
+      # score when neither
+      x != y[1] | x != y[2] ~ 0
+    )
+  }) %>% 
+  ## add suffix
+  rename_all(paste0, "_score")
+
+### sum same items
+## map item numbers 
+sji_score_sum <- map_dfc(as.character(1:9), 
+    ## create function
+    function(ndx) {
+      ## call sji_score
+      sji_score %>% 
+        # select the same items
+        select(contains(ndx)) %>%
+        # sum the items
+        rowSums(., na.rm = FALSE) 
+    }) %>%
+  ## set names of columns
+  set_names(paste0("SJ_", 1:9))
+
+### combine all new variables
+## create data
+sji_new <- bind_cols(sji_score, sji_score_sum)
+```
+
+## Scenarios
+
+Score each scenario item such that individuals recieve a score indicating their distance from the most common response. 
+Individuals indicating the most common response for an item receive a 0.
+All other individuals receive a score indicating their absolute Manhattan deviation from the most common response.
+This will create 16 new variables.
+
+```{r}
+### create scenarios tibble
+## call data
+scenario <- test_imp %>%
+  ## select non-time items
+  select(matches("Scenario.*\\d$"))
+
+### identify most frequent responses
+## map all scenarios columns
+scenario_most_freq <- map_df(scenario, 
+  ## create function
+  function(ndx) {
+    # find most frequent value
+    as.numeric(names(which.max(table(ndx))))
+  })
+
+### score scenarios
+## map sji and sji_least_most_freq columns
+scenario_score <- map2_df(
+  # original scores
+  scenario, 
+  # most frequent
+  scenario_most_freq,
+  ## create function
+  ~ abs(.x - .y)
+) %>%
+  ## add suffix
+  rename_all(paste0, "_score") %>%
+  ## rows
+  rowwise() %>%
+  ## add variables
+  mutate(
+    # scenario one
+    scenario_1_tot_score = sum(
+      # variables
+      c_across(Scenario1_1_score:Scenario1_8_score)
+    ),
+    # scenario two
+    scenario_2_tot_score = sum(
+      # variables
+      c_across(Scenario2_1_score:Scenario2_8_score)
+    )
+  ) %>%
+  ## remove groups
+  ungroup()
+
+### score scenarios
+## map sji and sji_least_most_freq columns
+scenario_score_2 <- map2_df(
+  # original scores
+  scenario, 
+  # most frequent
+  scenario_most_freq,
+  ## create function
+  ~ abs(.x - .y)^2
+) %>%
+  ## add suffix
+  rename_all(paste0, "_score_sq") %>%
+  ## rows
+  rowwise() %>%
+  ## add variables
+  mutate(
+    # scenario one
+    scenario_1_tot_score_sq = sum(
+      # variables
+      c_across(Scenario1_1_score_sq:Scenario1_8_score_sq)
+    ),
+    # scenario two
+    scenario_2_tot_score_sq = sum(
+      # variables
+      c_across(Scenario2_1_score_sq:Scenario2_8_score_sq)
+    )
+  ) %>%
+  ## remove groups
+  ungroup()
+```
+
+## Personality
+
+Score each individual on the set of 13 personality scales.
+Reverse score a subset of items for each personality scale so that all items possess the same polarity.
+
+```{r}
+### create personality tibble
+## call data
+personality <- test_imp %>%
+  ## select non-time items
+  select(starts_with("PScale"))
+
+### personality scores
+## reference names of personality scales
+pers_new_vars <- map(paste0(rep(0:1, times = c(9, 4)), c(1:9, 0:3)), 
+  ## create function
+  function(ndx) {
+    ## select items
+    items <- personality %>%
+      ## select items from one scale
+      select(contains(ndx)) 
+    
+    ## compute loadings
+    loadings <- items %>%
+      ## loadings on first principal component
+      psych::principal() %>%
+      ## extract loadings
+      `[[`("loadings")
+    
+    ## update items
+    items <- items %>%
+      ## reverse score negative loadings
+                # select items  
+      mutate(across(row.names(loadings)[which(loadings < 0)],
+        # reverse score
+        .fns = list(rev = ~ 5 - .), 
+        # set names
+        .names = "{col}_{fn}"))
+
+    ## compute scale score     
+    items_score <- items %>%
+      ## select positive loadings and reversed items
+      select(which(loadings > 0), contains("rev")) %>%
+      ## compute scale score
+      mutate(score = rowMeans(., na.rm = FALSE)) %>%
+      ## rename score 
+      rename(!!quo_name(paste0("PScale", ndx, "_score")) := score)
+    
+    ## output the new variables
+    items_score %>%
+      ## select new variables
+      select(contains(c("rev", "score")))
+  })
+
+### combine new personality variables
+pers_new_vars_all <- bind_cols(pers_new_vars)
+```
+
+## Biodata
+
+Categorical principal components analysis to reduce the number of biodata items.
+
+```{r}
+### select for biodata
+## save as object
+biodata <- test_imp %>%
+  ## select biodata
+  select(
+    # find
+    contains("Biodata")
+  ) %>%
+  ## update variables
+  mutate(
+    # apply function to variables
+    across(
+      # columns
+      .cols = everything(),
+      # function
+      .fns = as_factor
+    )
+  )
+
+### reset class
+## overwrite
+class(biodata) <- "data.frame"
+
+### categorical pca
+## save as object
+biodata_pca <- princals(
+  # data
+  biodata,
+  # number of dimensions
+  ndim = 5,
+  # nominal factors
+  ordinal = FALSE
+)
+
+### extract component scores
+## save as object
+biodata_scores <- 
+  ## extract component scores
+  biodata_pca$objectscores %>%
+  ## convert to tibble
+  as_tibble() %>%
+  ## rename
+  rename_with(
+    # paste
+    ~ str_c("biodata", .x, sep = "_")
+  )
+```
+
+## Bind Columns
+
+Bind all columns to original data frame.
+
+```{r}
+### bind all new variables to original data
+## overwrite original data
+test_scored <- bind_cols(
+  # imputed training
+  test_imp, 
+  # situational judgment
+  sji_new,
+  # situational judgment
+  sji_score_prop, 
+  # scenarios
+  scenario_score, 
+  # scenarios
+  scenario_score_2,
+  # personality
+  pers_new_vars_all,
+  # biodata
+  biodata_scores
+)
+```
+
+## Save Objects
+
+Save the scored training data.
+
+```{r}
+### save scored training data
+## call function
+write_csv(
+  # data
+  test_scored,
+  # path
+  here("data", "work", "test_scored.csv")
+)
+```

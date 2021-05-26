@@ -1,0 +1,6261 @@
+---
+title: "Machine Learning"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+## global settings: print syntax
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This script estimates models on the training data.
+
+## Load Libraries
+
+Load libraries for script.
+
+```{r, libraries}
+## here for project directory navigation
+library(here)
+
+## tidyverse for data manipulation and plotting
+library(tidyverse)
+
+## tidymodels for machine learning 
+library(tidymodels)
+
+## recipeselectors for feature selection
+library(recipeselectors)
+
+## finetune for tuning parameters
+library(finetune)
+
+## discrim for machine learning
+library(discrim)
+
+## baguette for machine learning
+library(baguette)
+
+## rules for machine learning
+library(rules)
+
+## corrr for correlations
+library(corrr)
+```
+
+## Load Data
+
+Load data for modeling.
+
+```{r, data}
+### raw training data
+## save as object
+comp_train_data <- read_csv(
+  ## file path 
+  here("data", "work", "train_model.csv")
+)
+
+### raw training data
+## save as object
+dev_data <- read_csv(
+  ## file path 
+  here("data", "work", "dev_model.csv")
+)
+
+### raw training data
+## save as object
+test_data <- read_csv(
+  ## file path 
+  here("data", "work", "test_model.csv")
+)
+```
+
+## Prepare Data
+
+Prepare data for modeling.
+
+```{r}
+### prepare data
+## overwrite
+comp_train_data <- comp_train_data %>%
+  ## update variables
+  mutate(
+    # across variables
+    across(
+      # columns
+      .cols = c(
+        # biodata
+        Biodata_01:Biodata_20,
+        # outcomes
+        High_Performer:hp_score
+      ),
+      # function
+      .fns = as_factor
+    ),
+    # combined high performer and retained
+    hp_ret = case_when(
+      # yes high performer and yes retained
+      High_Performer == 1 & Retained == 1 ~ "yhp_yret",
+      # not high performer and yes retained
+      High_Performer == 0 & Retained == 1 ~ "nhp_yret",
+      # yes high performer and not retained
+      High_Performer == 1 & Retained == 0 ~ "yhp_nret",
+      # not high performer and not retained
+      High_Performer == 0 & Retained == 0 ~ "nhp_nret"
+    ),
+    # combined high performer and protected group
+    hp_pg = case_when(
+      # yes high performer and yes protected group
+      High_Performer == 1 & Protected_Group == 1 ~ "yhp_ypg",
+      # not high performer and yes protected group
+      High_Performer == 0 & Protected_Group == 1 ~ "nhp_ypg",
+      # yes high performer and not protected group
+      High_Performer == 1 & Protected_Group == 0 ~ "yhp_npg",
+      # not high performer and not protected group
+      High_Performer == 0 & Protected_Group == 0 ~ "nhp_npg"
+    ),
+    # combined retained and protected group
+    ret_pg = case_when(
+      # yes retained and yes protected group
+      Retained == 1 & Protected_Group == 1 ~ "yret_ypg",
+      # not retained and yes protected group
+      Retained == 0 & Protected_Group == 1 ~ "nret_ypg",
+      # yes retained and not protected group
+      Retained == 1 & Protected_Group == 0 ~ "yret_npg",
+      # not retained and not protected group
+      Retained == 0 & Protected_Group == 0 ~ "nret_npg"
+    ),
+    # combined high performer, retained, and protected group
+    hp_ret_pg = case_when(
+      # yes to all three
+      High_Performer == 1 & Retained == 1 & Protected_Group == 1 ~ "yhp_yret_ypg",
+      # yes high performer and retained; no protected group
+      High_Performer == 1 & Retained == 1 & Protected_Group == 0 ~ "yhp_yret_npg",
+      # yes high performer and protected group; no retained
+      High_Performer == 1 & Retained == 0 & Protected_Group == 1 ~ "yhp_nret_ypg",
+      # yes high performer; no retained and protected group
+      High_Performer == 1 & Retained == 0 & Protected_Group == 0 ~ "yhp_nret_npg",
+      # no high performer; yes retained and protected group
+      High_Performer == 0 & Retained == 1 & Protected_Group == 1 ~ "nhp_yret_ypg",
+      # no high performer and protected group; yes retained
+      High_Performer == 0 & Retained == 1 & Protected_Group == 0 ~ "nhp_yret_npg",
+      # no high performer and retained; yes protected group
+      High_Performer == 0 & Retained == 0 & Protected_Group == 1 ~ "nhp_nret_ypg",
+      # no to all three
+      High_Performer == 0 & Retained == 0 & Protected_Group == 0 ~ "nhp_nret_npg",
+    ),
+    # combined high performer and retained
+    hp_ret_yn = case_when(
+      # yes high performer and yes retained
+      High_Performer == 1 & Retained == 1 ~ 1,
+      # not high performer and yes retained
+      High_Performer == 0 & Retained == 1 ~ 0,
+      # yes high performer and not retained
+      High_Performer == 1 & Retained == 0 ~ 0,
+      # not high performer and not retained
+      High_Performer == 0 & Retained == 0 ~ 0
+    ),
+    # across variables
+    across(
+      # columns
+      .cols = c(
+        # outcome combinations
+        hp_ret:hp_ret_yn
+      ),
+      # function
+      .fns = as_factor
+    )
+  ) %>%
+  ## relocate
+  relocate(hp_ret:hp_ret_yn, .after = hp_score)
+
+### prepare data
+## overwrite
+dev_data <- dev_data %>%
+  ## add variable
+  mutate(
+    # hp score
+    hp_score = "Yes",
+    # across variables
+    across(
+      # columns
+      .cols = c(
+        # biodata
+        Biodata_01:Biodata_20,
+        # outcomes
+        hp_score
+      ),
+      # function
+      .fns = as_factor
+    )
+  ) %>%
+  ## relocate
+  relocate(hp_score, .after = UNIQUE_ID)
+
+### prepare data
+## overwrite
+test_data <- test_data %>%
+  ## add variable
+  mutate(
+    # hp score
+    hp_score = "Yes",
+    # across variables
+    across(
+      # columns
+      .cols = c(
+        # biodata
+        Biodata_01:Biodata_20,
+        # outcomes
+        hp_score
+      ),
+      # function
+      .fns = as_factor
+    )
+  ) %>%
+  ## relocate
+  relocate(hp_score, .after = UNIQUE_ID)
+```
+
+## Examine Features
+
+Examine correlations between features.
+
+```{r}
+### correlate numberic features
+## call data
+comp_train_data %>%
+  ## select
+  select(
+    # numeric
+    where(is.numeric)
+  ) %>%
+  ## correlation matrix
+  correlate() %>%
+  ## long data table
+  stretch() %>%
+  ## arrange
+  arrange(r)
+
+### correlate numeric features
+## call data
+comp_train_data %>%
+  ## select variables
+  select(
+    # scenario
+    matches("^Scenario")
+  ) %>%
+  ## correlation matrix
+  correlate() %>%
+  ## long data table
+  stretch() %>%
+  ## arrange
+  arrange(desc(r)) 
+
+### correlate numeric features
+## call data
+comp_train_data %>%
+  ## select variables
+  select(
+    # personality
+    matches("PScale")
+  ) %>%
+  ## correlation matrix
+  correlate() %>%
+  ## long data table
+  stretch() %>%
+  ## arrange
+  arrange(desc(r)) 
+```
+
+## Split Data
+
+Split data for training and testing.
+
+```{r}
+### make initial split of data
+## set seed
+set.seed(1801)
+
+### split data
+## save as object
+hp_split <- initial_split(
+  # data
+  comp_train_data %>%
+    # filter for performance data
+    filter(hp_score == "Yes"),
+  # proportion
+  prop = 0.7145098,
+  # stratification
+  strata = hp_ret_pg
+)
+
+## training
+hp_split_train <- training(hp_split)
+
+## testing
+hp_split_test <- testing(hp_split)
+
+### pull testing ids
+## save
+hp_split_test_id <- hp_split_test %>%
+  ## extract
+  pull(UNIQUE_ID)
+
+### training folds
+## save as object
+hp_train_folds <- vfold_cv(
+  # data
+  comp_train_data %>%
+    # filter for performance data
+    filter(hp_score == "Yes"),
+  # number of folds
+  v = 5,
+  # number of repeats
+  repeats = 1,
+  # stratify
+  strata = hp_ret_pg
+)
+
+### make initial split of data
+## set seed
+set.seed(1959)
+
+### split data
+## save as object
+comp_split <- initial_split(
+  # data
+  comp_train_data,
+  # proportion
+  prop = 0.7,
+  # stratification
+  strata = ret_pg
+)
+
+## training
+comp_split_train <- training(comp_split)
+
+## testing
+comp_split_test <- testing(comp_split)
+
+### training folds
+## save as object
+comp_train_folds <- vfold_cv(
+  # training data
+  comp_train_data %>%
+    # filter
+    filter(
+      # remove missing protected group
+      !is.na(Protected_Group)
+    ),
+  # number of folds
+  v = 5,
+  # number of repeats
+  repeats = 1,
+  # stratify
+  strata = ret_pg
+)
+
+### training folds
+## save as object
+no_hp_train_folds <- vfold_cv(
+  # data
+  comp_train_data %>%
+    # filter for performance data
+    filter(
+      # no high performer score
+      hp_score == "No",
+      # no missing protected group
+      !is.na(Protected_Group)
+    ),
+  # number of folds
+  v = 5,
+  # number of repeats
+  repeats = 1,
+  # stratify
+  strata = ret_pg
+)
+```
+
+## Prepare Recipe
+
+Prepare recipe for modeling.
+
+```{r}
+### prepare recipe
+## save as object
+hp_rec <- recipe(
+  # individual outcomes
+  High_Performer + Retained + Protected_Group +
+    # combined outcomes
+    hp_ret + hp_pg + ret_pg + hp_ret_pg + hp_ret_yn ~
+    # features
+    .,
+  # data
+  data = 
+    # training data
+    comp_train_data %>%
+      # filter for high performer scores
+      filter(hp_score == "Yes")
+) %>%
+  ## remove variables
+  step_rm(
+    # variables
+    UNIQUE_ID, hp_score
+  ) %>%
+  ## dummy
+  step_dummy(
+    # biodata
+    Biodata_01:Biodata_20
+  )
+
+### preview recipe data
+## call recipe
+hp_rec %>%
+  ## estimate parameters
+  prep() %>%
+  ## compute
+  bake(
+    # training data
+    new_data = NULL
+  )
+
+### prepare recipe
+## save as object
+comp_rec <- recipe(
+  # individual outcomes
+  High_Performer + Retained + Protected_Group +
+    # combined outcomes
+    hp_ret + hp_pg + ret_pg + hp_ret_pg + hp_ret_yn ~
+    # features
+    .,
+  # data
+  data =
+    # training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # remove missing protected group
+        hp_score == "No"
+      )
+) %>%
+  ## remove variables
+  step_rm(
+    # variables
+    UNIQUE_ID, hp_score
+  ) %>%
+  ## dummy
+  step_dummy(
+    # biodata
+    Biodata_01:Biodata_20
+  )
+
+### preview recipe data
+## call recipe
+comp_rec %>%
+  ## estimate parameters
+  prep() %>%
+  ## compute
+  bake(
+    # training data
+    new_data = NULL
+  )
+
+### prepare recipe
+## save as object
+no_hp_rec <- recipe(
+  # individual outcomes
+  High_Performer + Retained + Protected_Group +
+    # combined outcomes
+    hp_ret + hp_pg + ret_pg + hp_ret_pg + hp_ret_yn ~
+    # features
+    .,
+  # data
+  data =
+    # training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # remove missing protected group
+        !is.na(Protected_Group),
+        # no high performer score
+        hp_score == "No"
+      )
+) %>%
+  ## remove variables
+  step_rm(
+    # variables
+    UNIQUE_ID, hp_score
+  ) %>%
+  ## dummy
+  step_dummy(
+    # biodata
+    Biodata_01:Biodata_20
+  )
+```
+
+## Fit High Performer Models
+
+Fit models for **High_Performer**.
+Evaluate models across training folds.
+
+```{r}
+### model metrics
+## save as object
+class_met <- metric_set(
+  # particular accuracy
+  sens, spec, ppv, npv,
+  # combine sens and spec
+  j_index,
+  # overall accuracy
+  accuracy, roc_auc
+)
+
+### logistic regression workflow
+## save as object
+glm_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    logistic_reg() %>%
+      # engine
+      set_engine("glm")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      )
+  )
+
+### estimate model on folds
+## save as object
+glm_hp_fit_folds <- 
+  ## workflow
+  glm_hp_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glm_hp_fit_folds)
+
+### fit to complete training data
+## save as object
+glm_hp_fit <- 
+  ## workflow
+  glm_hp_wflow %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+#### elastic net
+### model specification
+## save as object
+glmnet_spec <- 
+  ## regression specification
+  logistic_reg(
+    # tune penalty
+    penalty = tune(),
+    # tune mixture
+    mixture = tune()
+  ) %>%
+  ## specify engine
+  set_engine("glmnet") 
+
+### view a tuning grid
+## call model specification
+glmnet_grid <- glmnet_spec %>%
+  ## parameters
+  parameters() %>%
+  ## grid
+  grid_max_entropy(size = 10) 
+
+### create initial workflow
+## save as object
+glmnet_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(glmnet_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### initial tuning
+## save as object
+glmnet_hp_tune <- 
+  ## workflow
+  glmnet_hp_wflow %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = glmnet_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_hp_tune) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_hp_tune,
+  # metric
+  metric = "j_index"
+)
+
+### simulated annealing
+## save as object
+glmnet_hp_tune_sa <- 
+  ## workflow
+  glmnet_hp_wflow %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = glmnet_hp_tune,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 100,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_hp_tune_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_hp_tune_sa,
+  # metric
+  metric = "accuracy",
+  # number
+  n = 10
+) %>%
+  ## print all rows
+  print(n = Inf)
+
+### create final workflow
+## save as object
+glmnet_hp_wflow_final <- 
+  ## initial workflow
+  glmnet_hp_wflow %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # penalty
+      penalty = 9.65e-10,
+      # mixture
+      mixture = 0.666
+    )
+  )
+
+### fit to complete training data
+## save as object
+glmnet_hp_fit <- 
+  ## workflow
+  glmnet_hp_wflow_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+### naive Bayes workflow
+## save as object
+nb_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+   naive_Bayes(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("naivebayes")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+nb_hp_fit_folds <- 
+  ## workflow
+  nb_hp_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(nb_hp_fit_folds)
+
+#### random forest
+### model specification
+## save as object
+rf_spec <- 
+  ## random forest specification
+  rand_forest(
+    # mode
+    mode = "classification",
+    # tune number of features
+    mtry = tune(),
+    # tune number of tress
+    trees = tune(),
+    # tune minimum data points
+    min_n = tune()
+  ) %>%
+  ## specify engine
+  set_engine("ranger") 
+
+### view a tuning grid
+## call model specification
+rf_grid <- rf_spec %>%
+  ## parameters
+  parameters() %>%
+  ## update
+  update(mtry = mtry(c(1, 20))) %>%
+  ## grid
+  grid_max_entropy(size = 4)
+
+### random forest workflow
+## save as object
+rf_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(rf_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      )
+  )
+
+### estimate model on folds
+## save as object
+rf_hp_tune <- 
+  ## workflow
+  rf_hp_wflow %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = rf_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(rf_hp_tune) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### simulated annealing
+## save as object
+rf_hp_tune_sa <- 
+  ## workflow
+  rf_hp_wflow %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = rf_hp_tune,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(rf_hp_tune_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  rf_hp_tune_sa,
+  # metric
+  metric = "accuracy",
+  # number
+  n = 100
+) %>%
+  ## print all rows
+  print(n = Inf)
+
+### create final workflow
+## save as object
+rf_hp_wflow_final <- 
+  ## initial workflow
+  rf_hp_wflow %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # number of features
+      mtry = 2,
+      # number of trees
+      trees = 1500,
+      # minimum data points
+      min_n = 25
+    )
+  )
+
+### fit to complete training data
+## save as object
+rf_hp_fit <- 
+  ## workflow
+  rf_hp_wflow_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for performance data
+      filter(hp_score == "Yes")
+  )
+
+#### bagged mars
+### model specification
+## save as object
+bag_mars_spec <- 
+ ## specification
+  bag_mars(
+    # classification
+    mode = "classification",
+    # number of terms
+    num_terms = tune(),
+    # product degree
+    prod_degree = tune(),
+    # prune method
+    prune_method = tune()
+  ) %>%
+  ## engine
+  set_engine("earth")
+
+### view a tuning grid
+## call model specification
+bag_mars_grid <- bag_mars_spec %>%
+  ## parameters
+  parameters() %>%
+  ## grid
+  grid_max_entropy(size = 3)
+
+### mars workflow
+## save as object
+bag_mars_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(bag_mars_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      ) %>%
+      # feature selection
+      step_select_roc(
+        # predictors
+        all_predictors(),
+        # outcome
+        outcome = "High_Performer",
+        # top
+        top_p = 150
+      ) %>%
+      # variance
+      step_nzv(
+        # predictors
+        all_predictors()
+      ) %>%
+      # correlations
+      step_corr(
+        # predictors
+        all_predictors()
+      )
+  )
+
+### initial tuning
+## save as object
+bag_mars_hp_tune <- 
+  ## workflow
+  bag_mars_hp_wflow %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = bag_mars_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(bag_mars_hp_tune) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  bag_mars_hp_tune,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+bag_mars_hp_tune_sa <- 
+  ## workflow
+  bag_mars_hp_wflow %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = bag_mars_hp_tune,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(bag_mars_hp_tune_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  bag_mars_hp_tune_sa,
+  # metric
+  metric = "accuracy",
+  # number
+  n = 10
+) %>%
+  ## print all rows
+  print(n = Inf)
+
+### create final workflow
+## save as object
+bag_mars_hp_wflow_final <- 
+  ## initial workflow
+  bag_mars_hp_wflow %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # number of terms
+      num_terms = tune(),
+      # product degree
+      prod_degree = tune(),
+      # prune method
+      prune_method = tune()
+    )
+  )
+
+### fit to complete training data
+## save as object
+bag_mars_hp_fit <- 
+  ## workflow
+  bag_mars_hp_wflow_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+### flexible discriminant workflow
+## save as object
+fd_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    discrim_flexible(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("earth")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+fd_hp_fit_folds <- 
+  ## workflow
+  fd_hp_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(fd_hp_fit_folds)
+
+### fit to complete training data
+## save as object
+fd_hp_fit <- 
+  ## workflow
+  fd_hp_wflow %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+### linear discriminant workflow
+## save as object
+ld_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    discrim_linear(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("mda")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      )
+  )
+
+### estimate model on folds
+## save as object
+ld_hp_fit_folds <- 
+  ## workflow
+  ld_hp_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(ld_hp_fit_folds)
+
+### fit to complete training data
+## save as object
+ld_hp_fit <- 
+  ## workflow
+  ld_hp_wflow %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+### flexible discriminant workflow
+## save as object
+c5rule_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    C5_rules(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("C5.0")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+c5rule_hp_fit_folds <- 
+  ## workflow
+  c5rule_hp_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(c5rule_hp_fit_folds)
+
+### rule fit workflow
+## save as object
+rule_fit_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    rule_fit(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("xrf")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+rule_fit_hp_fit_folds <- 
+  ## workflow
+  rule_fit_hp_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(rule_fit_hp_fit_folds)
+
+### boosted trees workflow
+## save as object
+bt_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    boost_tree(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("xgboost")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+bt_hp_fit_folds <- 
+  ## workflow
+  bt_hp_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(bt_hp_fit_folds)
+
+### bagged trees workflow
+## save as object
+bagt_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    bag_tree(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("rpart")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+bagt_hp_fit_folds <- 
+  ## workflow
+  bagt_hp_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(bagt_hp_fit_folds)
+
+#### support vector machine
+### model specification
+## save as object
+svm_spec <- 
+  ## svm specification
+  svm_rbf(
+    # mode
+    mode = "classification",
+    # tune cost
+    cost = tune(),
+    # tune sigma
+    rbf_sigma = tune()
+  ) %>%
+  ## specify engine
+  set_engine("kernlab") 
+
+### view a tuning grid
+## call model specification
+svm_grid <- svm_spec %>%
+  ## parameters
+  parameters() %>%
+  ## grid
+  grid_max_entropy(size = 4)
+
+### support vector machine workflow
+## save as object
+svm_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(svm_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+svm_hp_tune <- 
+  ## workflow
+  svm_hp_wflow %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = svm_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(svm_hp_tune) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  svm_hp_tune,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+svm_hp_tune_sa <- 
+  ## workflow
+  svm_hp_wflow %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = svm_hp_tune,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(svm_hp_tune_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  svm_hp_tune_sa,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+svm_hp_wflow_final <- 
+  ## initial workflow
+  svm_hp_wflow %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # cost
+      cost = 0.972,
+      # sigma
+      rbf_sigma = 0.0112
+    )
+  )
+
+### fit to complete training data
+## save as object
+svm_hp_fit <- 
+  ## workflow
+  svm_hp_wflow_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+### neural network
+## save as object
+nn_spec <- 
+  ## nn specification
+  mlp(
+    # regression
+    mode = "classification",
+    # number of hidden units
+    hidden_units = tune(),
+    # penalty
+    penalty = tune(),
+    # epochs
+    epochs = tune()
+  ) %>%
+  ## specify engine
+  set_engine("nnet")
+
+### view a tuning grid
+## call model specification
+nn_grid <- nn_spec %>%
+  ## parameters
+  parameters() %>%
+  ## grid
+  grid_max_entropy(size = 4) 
+
+### create initial workflow
+## save as object
+nn_hp_wflow <- workflow() %>%
+  ## add model
+  add_model(nn_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      )
+  )
+
+### estimate models
+## save as object
+nn_hp_tune <- 
+  ## workflow
+  nn_hp_wflow %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = nn_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_hp_tune) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_hp_tune,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+nn_hp_tune_sa <- 
+  ## workflow
+  nn_hp_wflow %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = nn_hp_tune,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_hp_tune_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_hp_tune_sa,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+nn_hp_wflow_final <- 
+  ## initial workflow
+  nn_hp_wflow %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # number of hidden units
+      hidden_units = 2,
+      # penalty
+      penalty = 0.119,
+      # epochs
+      epochs = 880
+    )
+  )
+
+### fit to complete training data
+## save as object
+nn_hp_fit <- 
+  ## workflow
+  nn_hp_wflow_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+```
+
+## Fit Retained Models
+
+Fit models for **Retained**.
+Evaluate models across training folds.
+
+```{r}
+### logistic regression workflow
+## save as object
+glm_ret_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    logistic_reg() %>%
+      # engine
+      set_engine("glm")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+glm_ret_fit_folds_hp_rec <- 
+  ## workflow
+  glm_ret_wflow_hp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glm_ret_fit_folds_hp_rec)
+
+### fit to complete training data
+## save as object
+glm_ret_fit_hp_rec <- 
+  ## workflow
+  glm_ret_wflow_hp_rec %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter
+      filter(hp_score == "Yes")
+  )
+
+#### fit using hp score data
+### create initial workflow
+## save as object
+glmnet_ret_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(glmnet_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate models
+## save as object
+glmnet_ret_tune_hp_rec <- 
+  ## workflow
+  glmnet_ret_wflow_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = glmnet_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_ret_tune_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_ret_tune_hp_rec,
+  # metric
+  metric = "npv"
+)
+
+### simulated annealing
+## save as object
+glmnet_ret_tune_hp_rec_sa <- 
+  ## workflow
+  glmnet_ret_wflow_hp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = glmnet_ret_tune_hp_rec,
+    # metrics
+    metrics = metric_set(j_index),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_ret_tune_hp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_ret_tune_hp_rec_sa,
+  # metric
+  metric = "j_index",
+  # number
+  n = 10
+) %>%
+  ## print all rows
+  print(n = Inf)
+
+### create final workflow
+## save as object
+glmnet_ret_wflow_hp_rec_final <- 
+  ## initial workflow
+  glmnet_ret_wflow_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # penalty
+      penalty = 3.14e-4,
+      # mixture
+      mixture = 0.0566
+    )
+  )
+
+### fit to complete training data
+## save as object
+glmnet_ret_fit_hp_rec <- 
+  ## workflow
+  glmnet_ret_wflow_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+### flexible discriminant workflow
+## save as object
+fd_ret_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    discrim_flexible(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("earth")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+fd_ret_fit_folds_hp_rec <- 
+  ## workflow
+  fd_ret_wflow_hp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(fd_ret_fit_folds_hp_rec)
+
+### fit to complete training data
+## save as object
+fd_ret_fit_hp_rec <- 
+  ## workflow
+  fd_ret_wflow_hp_rec %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+#### random forest
+### estimate model on folds
+## save as object
+rf_ret_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(rf_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg,
+        # case weight
+        case_wgt
+      )
+  )
+
+### estimate models
+## save as object
+rf_ret_tune_hp_rec <- 
+  ## workflow
+  rf_ret_wflow_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = rf_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(rf_ret_tune_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  rf_ret_tune_hp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+rf_ret_wflow_hp_rec_final <- 
+  ## initial workflow
+  rf_ret_wflow_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+    # number of features
+    mtry = 2,
+    # number of tress
+    trees = 675,
+    # tune minimum data points
+    min_n = 37
+    )
+  )
+
+### fit to complete training data
+## save as object
+rf_ret_fit_hp_rec <- 
+  ## workflow
+  rf_ret_wflow_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for performance data
+      filter(hp_score == "Yes")
+  )
+
+### create initial workflow
+## save as object
+nn_ret_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(nn_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      ) 
+  )
+
+### estimate models
+## save as object
+nn_ret_tune_hp_rec <- 
+  ## workflow
+  nn_ret_wflow_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = nn_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_ret_tune_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_ret_tune_hp_rec,
+  # metric
+  metric = "j_index"
+)
+
+### simulated annealing
+## save as object
+nn_ret_tune_hp_rec_sa <- 
+  ## workflow
+  nn_ret_wflow_hp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = nn_ret_tune_hp_rec,
+    # metrics
+    metrics = metric_set(j_index),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_ret_tune_hp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_ret_tune_hp_rec_sa,
+  # metric
+  metric = "j_index"
+)
+
+### create final workflow
+## save as object
+nn_ret_wflow_hp_rec_final <- 
+  ## initial workflow
+  nn_ret_wflow_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # number of hidden units
+      hidden_units = 3,
+      # penalty
+      penalty = 4.43e-7,
+      # epochs
+      epochs = 805
+    )
+  )
+
+### fit to complete training data
+## save as object
+nn_ret_hp_rec_fit <- 
+  ## workflow
+  nn_ret_wflow_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+#### fit using complete training data
+### logistic regression workflow
+## save as object
+glm_ret_wflow_comp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    logistic_reg() %>%
+      # engine
+      set_engine("glm")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    comp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+glm_ret_fit_folds_comp_rec <- 
+  ## workflow
+  glm_ret_wflow_comp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = comp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glm_ret_fit_folds_comp_rec)
+
+### fit to complete training data
+## save as object
+glm_ret_fit_comp_rec <- 
+  ## workflow
+  glm_ret_wflow_comp_rec %>%
+  ## fit
+  fit(
+    # training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # remove missing protected group
+        !is.na(Protected_Group)
+      )
+  )
+
+#### fit using complete training data
+### create initial workflow
+## save as object
+glmnet_ret_wflow_comp_rec <- workflow() %>%
+  ## add model
+  add_model(glmnet_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    comp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      )
+  )
+
+### estimate models
+## save as object
+glmnet_ret_tune_comp_rec <- 
+  ## workflow
+  glmnet_ret_wflow_comp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    comp_train_folds,
+    # grid
+    grid = glmnet_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_ret_tune_comp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_ret_tune_comp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+glmnet_ret_tune_comp_rec_sa <- 
+  ## workflow
+  glmnet_ret_wflow_comp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = comp_train_folds,
+    # initial tune
+    initial = glmnet_ret_tune_comp_rec,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L,
+      # parallel
+      parallel_over = "resamples"
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_ret_tune_comp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_ret_tune_comp_rec_sa,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+glmnet_ret_wflow_comp_rec_final <- 
+  ## initial workflow
+  glmnet_ret_wflow_comp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # penalty
+      penalty = 5.189e-09,
+      # mixture
+      mixture = 0.716
+    )
+  )
+
+### fit to complete training data
+## save as object
+glmnet_ret_fit_comp_rec <- 
+  ## workflow
+  glmnet_ret_wflow_comp_rec_final %>%
+  ## fit
+  fit(
+    # training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # remove missing protected group
+        !is.na(Protected_Group)
+      )
+  )
+
+### flexible discriminant workflow
+## save as object
+fd_ret_wflow_comp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    discrim_flexible(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("earth")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    comp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+fd_ret_fit_folds_comp_rec <- 
+  ## workflow
+  fd_ret_wflow_comp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = comp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(fd_ret_fit_folds_comp_rec)
+
+### fit to complete training data
+## save as object
+fd_ret_fit_comp_rec <- 
+  ## workflow
+  fd_ret_wflow_comp_rec %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # remove missing protected group
+        !is.na(Protected_Group)
+      )
+  )
+
+#### random forest
+### estimate model on folds
+## save as object
+rf_ret_wflow_comp_rec <- workflow() %>%
+  ## add model
+  add_model(rf_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    comp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg
+      )
+  )
+
+### estimate models
+## save as object
+rf_ret_tune_comp_rec <- 
+  ## workflow
+  rf_ret_wflow_comp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = rf_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(rf_ret_tune_comp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  rf_ret_tune_comp_rec,
+  # metric
+  metric = "spec"
+)
+
+### create final workflow
+## save as object
+rf_ret_wflow_comp_rec_final <- 
+  ## initial workflow
+  rf_ret_wflow_comp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+    # number of features
+    mtry = 2,
+    # number of tress
+    trees = 949,
+    # tune minimum data points
+    min_n = 17
+    )
+  )
+
+### fit to complete training data
+## save as object
+rf_ret_fit_comp_rec <- 
+  ## workflow
+  rf_ret_wflow_comp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data
+  )
+
+#### fit using hp score data
+### create initial workflow
+## save as object
+glmnet_ret_wflow_no_hp_rec <- workflow() %>%
+  ## add model
+  add_model(glmnet_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    no_hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate models
+## save as object
+glmnet_ret_tune_no_hp_rec <- 
+  ## workflow
+  glmnet_ret_wflow_no_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    no_hp_train_folds,
+    # grid
+    grid = glmnet_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_ret_tune_no_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_ret_tune_no_hp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+glmnet_ret_tune_no_hp_rec_sa <- 
+  ## workflow
+  glmnet_ret_wflow_no_hp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = no_hp_train_folds,
+    # initial tune
+    initial = glmnet_ret_tune_no_hp_rec,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_ret_tune_no_hp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_ret_tune_no_hp_rec_sa,
+  # metric
+  metric = "accuracy",
+  # number
+  n = 10
+) %>%
+  ## print all rows
+  print(n = Inf)
+
+### create final workflow
+## save as object
+glmnet_ret_wflow_no_hp_rec_final <- 
+  ## initial workflow
+  glmnet_ret_wflow_no_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # penalty
+      penalty = 8.99e-5,
+      # mixture
+      mixture = 0.389
+    )
+  )
+
+### fit to complete training data
+## save as object
+glmnet_ret_fit_no_hp_rec <- 
+  ## workflow
+  glmnet_ret_wflow_no_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # high performers
+        hp_score == "No",
+        # protected group
+        !is.na(Protected_Group)
+      )
+  )
+
+### create initial workflow
+## save as object
+nn_ret_wflow_no_hp_rec <- workflow() %>%
+  ## add model
+  add_model(nn_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    no_hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      ) 
+  )
+
+### estimate models
+## save as object
+nn_ret_tune_no_hp_rec <- 
+  ## workflow
+  nn_ret_wflow_no_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    no_hp_train_folds,
+    # grid
+    grid = nn_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_ret_tune_no_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_ret_tune_no_hp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+nn_ret_tune_no_hp_rec_sa <- 
+  ## workflow
+  nn_ret_wflow_no_hp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = no_hp_train_folds,
+    # initial tune
+    initial = nn_ret_tune_no_hp_rec,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_ret_tune_no_hp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_ret_tune_no_hp_rec_sa,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+nn_ret_wflow_no_hp_rec_final <- 
+  ## initial workflow
+  nn_ret_wflow_no_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # number of hidden units
+      hidden_units = 3,
+      # penalty
+      penalty = 0.944,
+      # epochs
+      epochs = 813
+    )
+  )
+
+### fit to complete training data
+## save as object
+nn_ret_no_hp_rec_fit <- 
+  ## workflow
+  nn_ret_wflow_no_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # high performers
+        hp_score == "No",
+        # protected group
+        !is.na(Protected_Group)
+      )
+  )
+```
+
+## Fit Protected Group Models
+
+Fit models for **Protected_Group**.
+Evaluate models across training folds.
+
+```{r}
+### logistic regression workflow
+## save as object
+glm_pg_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    logistic_reg() %>%
+      # engine
+      set_engine("glm")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Retained,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      ) %>%
+      # feature selection
+      step_select_roc(
+        # predictors
+        all_predictors(),
+        # outcome
+        outcome = "Protected_Group",
+        # top
+        top_p = 150
+      ) %>%
+      # variance
+      step_nzv(
+        # predictors
+        all_predictors()
+      ) %>%
+      # correlations
+      step_corr(
+        # predictors
+        all_predictors()
+      )
+  )
+
+### estimate model on folds
+## save as object
+glm_pg_fit_folds_hp_rec <- 
+  ## workflow
+  glm_pg_wflow_hp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glm_pg_fit_folds_hp_rec)
+
+### fit to complete training data
+## save as object
+glm_pg_fit_hp_rec <- 
+  ## workflow
+  glm_pg_wflow_hp_rec %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter
+      filter(hp_score == "Yes")
+  )
+
+### create initial workflow
+## save as object
+glmnet_pg_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(glmnet_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Retained,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate models
+## save as object
+glmnet_pg_tune_hp_rec <- 
+  ## workflow
+  glmnet_pg_wflow_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = glmnet_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_pg_tune_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_pg_tune_hp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+glmnet_pg_tune_hp_rec_sa <- 
+  ## workflow
+  glmnet_pg_wflow_hp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = glmnet_pg_tune_hp_rec,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_pg_tune_hp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_pg_tune_hp_rec_sa,
+  # metric
+  metric = "accuracy",
+  # number
+  n = 10
+) %>%
+  ## print all rows
+  print(n = Inf)
+
+### create final workflow
+## save as object
+glmnet_pg_wflow_hp_rec_final <- 
+  ## initial workflow
+  glmnet_pg_wflow_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # penalty
+      penalty = 6.27e-9,
+      # mixture
+      mixture = 0.614
+    )
+  )
+
+### fit to complete training data
+## save as object
+glmnet_pg_fit_hp_rec <- 
+  ## workflow
+  glmnet_pg_wflow_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+### random forest workflow
+## save as object
+rf_pg_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    rand_forest(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("ranger")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Retained
+      )
+  )
+
+### estimate model on folds
+## save as object
+rf_pg_fit_folds_hp_rec <- 
+  ## workflow
+  rf_pg_wflow_hp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(rf_pg_fit_folds_hp_rec)
+
+### fit to complete training data
+## save as object
+rf_pg_fit_hp_rec <- 
+  ## workflow
+  rf_pg_wflow_hp_rec %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for performance data
+      filter(hp_score == "Yes")
+  )
+
+### create initial workflow
+## save as object
+nn_pg_wflow_hp_rec <- workflow() %>%
+  ## add model
+  add_model(nn_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Retained,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      )
+  )
+
+### estimate models
+## save as object
+nn_pg_tune_hp_rec <- 
+  ## workflow
+  nn_pg_wflow_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = nn_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_pg_tune_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_pg_tune_hp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+nn_pg_tune_hp_rec_sa <- 
+  ## workflow
+  nn_pg_wflow_hp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = hp_train_folds,
+    # initial tune
+    initial = nn_pg_tune_hp_rec,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_pg_tune_hp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_pg_tune_hp_rec_sa,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+nn_pg_wflow_hp_rec_final <- 
+  ## initial workflow
+  nn_pg_wflow_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # number of hidden units
+      hidden_units = 1,
+      # penalty
+      penalty = 0.788,
+      # epochs
+      epochs = 93
+    )
+  )
+
+### fit to complete training data
+## save as object
+nn_pg_hp_rec_fit <- 
+  ## workflow
+  nn_pg_wflow_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+#### fit using complete training data
+### logistic regression workflow
+## save as object
+glm_pg_wflow_comp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    logistic_reg() %>%
+      # engine
+      set_engine("glm")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    comp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Retained,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+glm_pg_fit_folds_comp_rec <- 
+  ## workflow
+  glm_pg_wflow_comp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = comp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glm_pg_fit_folds_comp_rec)
+
+### fit to complete training data
+## save as object
+glm_pg_fit_comp_rec <- 
+  ## workflow
+  glm_pg_wflow_comp_rec %>%
+  ## fit
+  fit(
+    # training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # remove missing protected group
+        !is.na(Protected_Group)
+      )
+  )
+
+### create initial workflow
+## save as object
+glmnet_pg_wflow_comp_rec <- workflow() %>%
+  ## add model
+  add_model(glmnet_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    comp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Retained,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      )
+  )
+
+### estimate models
+## save as object
+glmnet_pg_tune_comp_rec <- 
+  ## workflow
+  glmnet_pg_wflow_comp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    comp_train_folds,
+    # grid
+    grid = glmnet_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_pg_tune_comp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_pg_tune_comp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+glmnet_pg_tune_comp_rec_sa <- 
+  ## workflow
+  glmnet_pg_wflow_comp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = comp_train_folds,
+    # initial tune
+    initial = glmnet_pg_tune_comp_rec,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L,
+      # parallel
+      parallel_over = "resamples"
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_pg_tune_comp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_pg_tune_comp_rec_sa,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+glmnet_pg_wflow_comp_rec_final <- 
+  ## initial workflow
+  glmnet_pg_wflow_comp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # penalty
+      penalty = 6.27e-9,
+      # mixture
+      mixture = 0.614
+    )
+  )
+
+### fit to complete training data
+## save as object
+glmnet_pg_fit_comp_rec <- 
+  ## workflow
+  glmnet_pg_wflow_comp_rec_final %>%
+  ## fit
+  fit(
+    # training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # remove missing protected group
+        !is.na(Protected_Group)
+      )
+  )
+
+### flexible discriminant workflow
+## save as object
+fd_pg_wflow_comp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    discrim_flexible(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("earth")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    comp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Retained,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+fd_pg_fit_folds_comp_rec <- 
+  ## workflow
+  fd_pg_wflow_comp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = comp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(fd_pg_fit_folds_comp_rec)
+
+### fit to complete training data
+## save as object
+fd_pg_fit_comp_rec <- 
+  ## workflow
+  fd_pg_wflow_comp_rec %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # remove missing protected group
+        !is.na(Protected_Group)
+      )
+  )
+
+### random forest workflow
+## save as object
+rf_pg_wflow_comp_rec <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    rand_forest(
+      # classification
+      mode = "classification"
+    ) %>%
+      # engine
+      set_engine("ranger")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    comp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Retained
+      )
+  )
+
+### estimate model on folds
+## save as object
+rf_pg_fit_folds_hp_rec <- 
+  ## workflow
+  rf_pg_wflow_hp_rec %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = comp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(rf_pg_fit_folds_hp_rec)
+
+### fit to complete training data
+## save as object
+rf_pg_fit_comp_rec <- 
+  ## workflow
+  rf_pg_wflow_comp_rec %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data 
+  )
+
+### create initial workflow
+## save as object
+glmnet_pg_wflow_no_hp_rec <- workflow() %>%
+  ## add model
+  add_model(glmnet_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    no_hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Retained,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn
+      ) 
+  )
+
+### estimate models
+## save as object
+glmnet_pg_tune_no_hp_rec <- 
+  ## workflow
+  glmnet_pg_wflow_no_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    no_hp_train_folds,
+    # grid
+    grid = glmnet_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_pg_tune_no_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_pg_tune_no_hp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+glmnet_pg_tune_no_hp_rec_sa <- 
+  ## workflow
+  glmnet_pg_wflow_no_hp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = no_hp_train_folds,
+    # initial tune
+    initial = glmnet_pg_tune_no_hp_rec,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_pg_tune_no_hp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_pg_tune_no_hp_rec_sa,
+  # metric
+  metric = "accuracy",
+  # number
+  n = 10
+) %>%
+  ## print all rows
+  print(n = Inf)
+
+### create final workflow
+## save as object
+glmnet_pg_wflow_no_hp_rec_final <- 
+  ## initial workflow
+  glmnet_pg_wflow_no_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # penalty
+      penalty = 3.36e-10,
+      # mixture
+      mixture = 0.224
+    )
+  )
+
+### fit to complete training data
+## save as object
+glmnet_pg_fit_no_hp_rec <- 
+  ## workflow
+  glmnet_pg_wflow_no_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # high performers
+        hp_score == "No",
+        # protected group
+        !is.na(Protected_Group)
+      )
+  )
+
+### create initial workflow
+## save as object
+nn_pg_wflow_no_hp_rec <- workflow() %>%
+  ## add model
+  add_model(nn_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    no_hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Retained,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      ) 
+  )
+
+### estimate models
+## save as object
+nn_pg_tune_no_hp_rec <- 
+  ## workflow
+  nn_pg_wflow_no_hp_rec %>%
+  ## tune
+  tune_grid(
+    # folds
+    no_hp_train_folds,
+    # grid
+    grid = nn_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_pg_tune_no_hp_rec) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_pg_tune_no_hp_rec,
+  # metric
+  metric = "accuracy"
+)
+
+### simulated annealing
+## save as object
+nn_pg_tune_no_hp_rec_sa <- 
+  ## workflow
+  nn_pg_wflow_no_hp_rec %>%
+  ## tune
+  tune_sim_anneal(
+    # folds
+    resamples = no_hp_train_folds,
+    # initial tune
+    initial = nn_pg_tune_no_hp_rec,
+    # metrics
+    metrics = metric_set(accuracy),
+    # iterations
+    iter = 75,
+    # controls
+    control = control_sim_anneal(
+      # verbosity
+      verbose = TRUE,
+      # stoppage
+      no_improve = 15L
+    )
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_pg_tune_no_hp_rec_sa) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_pg_tune_no_hp_rec_sa,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+nn_pg_wflow_no_hp_rec_final <- 
+  ## initial workflow
+  nn_pg_wflow_no_hp_rec %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # number of hidden units
+      hidden_units = 2,
+      # penalty
+      penalty = 0.990,
+      # epochs
+      epochs = 831
+    )
+  )
+
+### fit to complete training data
+## save as object
+nn_pg_no_hp_rec_fit <- 
+  ## workflow
+  nn_pg_wflow_no_hp_rec_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter
+      filter(
+        # high performers
+        hp_score == "No",
+        # protected group
+        !is.na(Protected_Group)
+      )
+  )
+```
+
+## Fit Multinomial Models
+
+Fit models for **High_Performer**, **Retained**, and **Protected_Group**.
+Evaluate models across training folds.
+
+```{r}
+### logistic regression workflow
+## save as object
+glm_hp_ret_wflow <- workflow() %>%
+  ## add model
+  add_model(
+    # specification
+    logistic_reg() %>%
+      # engine
+      set_engine("glm")
+  ) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_pg,
+        # case weight
+        case_wgt
+      ) %>%
+      # remove near-zero variance
+      step_nzv(
+        # predictors
+        all_predictors()
+      ) %>%
+      # remove high correlations
+      step_corr(
+        # predictors
+        all_predictors()
+      ) 
+  )
+
+### estimate model on folds
+## save as object
+glm_hp_ret_fit_folds <- 
+  ## workflow
+  glm_hp_ret_wflow %>%
+  ## fit
+  fit_resamples(
+    # folds
+    resamples = hp_train_folds,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glm_hp_ret_fit_folds)
+
+### fit to complete training data
+## save as object
+glm_hp_ret_fit <- 
+  ## workflow
+  glm_hp_ret_wflow %>%
+  ## fit
+  fit(
+    # complete training data
+    hp_split_train
+  )
+
+#### elastic net
+### model specification
+## save as object
+glmnet_multinom_spec <- 
+  ## regression specification
+  multinom_reg(
+    # tune penalty
+    penalty = tune(),
+    # tune mixture
+    mixture = tune()
+  ) %>%
+  ## specify engine
+  set_engine("glmnet") 
+
+### view a tuning grid
+## call model specification
+glmnet_multinom_grid <- glmnet_spec %>%
+  ## parameters
+  parameters() %>%
+  ## grid
+  grid_max_entropy(size = 2) %>%
+  ## bind rows
+  bind_rows(
+    # add tibble
+    tibble(
+      # penalty
+      penalty = c(0.00295, 0.00513, 0.00124, 0.0125, 0.00135),
+      # mixture
+      mixture = c(0.217, 0.0891, 0.526, 0.142, 0.392)
+    )
+  )
+
+### create initial workflow
+## save as object
+glmnet_multinom_wflow <- workflow() %>%
+  ## add model
+  add_model(glmnet_multinom_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # outcomes
+        High_Performer, Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      )
+  )
+
+### estimate models
+## save as object
+glmnet_multinom_tune <- 
+  ## workflow
+  glmnet_multinom_wflow %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = glmnet_multinom_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(glmnet_multinom_tune) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  glmnet_multinom_tune,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+glmnet_multinom_wflow_final <- 
+  ## initial workflow
+  glmnet_multinom_wflow %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # penalty
+      penalty = 0.0125,
+      # mixture
+      mixture = 0.142
+    )
+  )
+
+### fit to complete training data
+## save as object
+glmnet_multinom_fit <- 
+  ## workflow
+  glmnet_multinom_wflow_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for performance data
+      filter(hp_score == "Yes")
+  )
+
+### fitted probabilities
+## save as object
+glmnet_multinom_fit_probs <- glmnet_multinom_fit %>%
+  ## fitted probabilities
+  predict(
+    # data
+    new_data =     
+      # complete training data
+      comp_train_data %>%
+        # filter for performance data
+        filter(hp_score == "Yes"), 
+    # probabilities
+    type = "prob"
+  )
+
+### fitted probabilities with observations
+## save as object
+glmnet_multinom_fit_probs_obs <-  
+  ## complete training data
+  comp_train_data %>%
+    ## filter for performance data
+    filter(hp_score == "Yes") %>%
+    ## select variables
+    select(UNIQUE_ID, High_Performer, Retained, Protected_Group, hp_ret_pg) %>%
+    ## bind columns
+    bind_cols(
+      # data
+      glmnet_multinom_fit_probs
+    ) %>%
+    ## rows
+    rowwise() %>%
+    ## add variables
+    mutate(
+      # class prediction
+      class_pred = which.max(
+        # variables
+        c_across(.pred_nhp_yret_npg:.pred_yhp_nret_npg)
+      )
+    ) %>%
+    ## remove groups
+    ungroup() %>%
+    ## update variables
+    mutate(
+      # convert to factor
+      class_pred = as_factor(class_pred),
+      # recode factor levels
+      class_pred = fct_recode(
+        # factor
+        class_pred,
+        # levels
+        "nhp_yret_npg" = "1", "yhp_nret_ypg" = "2", 
+        "nhp_nret_ypg" = "3", "yhp_yret_npg" = "4", 
+        "yhp_yret_ypg" = "5", "nhp_yret_ypg" = "6", 
+        "nhp_nret_npg" = "7", "yhp_nret_npg" = "8"
+      ),
+      # relevel factors
+      across(
+        # columns
+        .cols = c(hp_ret_pg, class_pred),
+        # function
+        .fns = ~ fct_relevel(
+          # factors
+          .,
+          # relevel
+          "nhp_nret_npg", "nhp_nret_ypg",
+          "nhp_yret_npg", "nhp_yret_ypg",
+          "yhp_nret_npg", "yhp_nret_ypg",
+          "yhp_yret_npg", "yhp_yret_ypg"
+        )
+      )
+    )
+
+### create initial workflow
+## save as object
+nn_multinom_wflow <- workflow() %>%
+  ## add model
+  add_model(nn_spec) %>%
+  ## add recipe
+  add_recipe(
+    # recipe
+    hp_rec %>%
+      # remove undesired variables
+      step_rm(
+        # remove individual outcomes
+        High_Performer, Retained, Protected_Group,
+        # remove combined outcomes
+        hp_ret, hp_pg, ret_pg, hp_ret_yn,
+        # case weight
+        case_wgt
+      ) %>%
+      # remove predictors
+      step_rm(
+        # predictors
+        all_predictors(),
+        # except for biodata components
+        -matches("biodata_D"),
+        # except for personality
+        -matches("PScale"),
+        # except for situational judgment
+        -matches("SJ_(Most|Least|prod)"),
+        # except for total scenario scores
+        -matches("scenario.*tot"),
+        # except for time
+        -matches("time")
+      ) 
+  )
+
+### estimate models
+## save as object
+nn_multinom_tune <- 
+  ## workflow
+  nn_multinom_wflow %>%
+  ## tune
+  tune_grid(
+    # folds
+    hp_train_folds,
+    # grid
+    grid = nn_grid,
+    # metrics
+    metrics = class_met
+  )
+
+### show metrics
+## call function
+collect_metrics(nn_multinom_tune) %>%
+  ## print long
+  print(n = Inf, width = Inf)
+
+### show best
+## call function
+show_best(
+  # results
+  nn_multinom_tune,
+  # metric
+  metric = "accuracy"
+)
+
+### create final workflow
+## save as object
+nn_multinom_wflow_final <- 
+  ## initial workflow
+  nn_multinom_wflow %>%
+  ## finalize workflow
+  finalize_workflow(
+    # tibble
+    tibble(
+      # number of hidden units
+      hidden_units = 9,
+      # penalty
+      penalty = 0.417,
+      # epochs
+      epochs = 526
+    )
+  )
+
+### fit to complete training data
+## save as object
+nn_multinom_fit <- 
+  ## workflow
+  nn_multinom_wflow_final %>%
+  ## fit
+  fit(
+    # complete training data
+    comp_train_data %>%
+      # filter for hp scores
+      filter(hp_score == "Yes")
+  )
+
+### fitted probabilities
+## save as object
+nn_multinom_fit_probs <- nn_multinom_fit %>%
+  ## fitted probabilities
+  predict(
+    # data
+    new_data =     
+      # complete training data
+      comp_train_data %>%
+        # filter for performance data
+        filter(hp_score == "Yes"), 
+    # probabilities
+    type = "prob"
+  )
+
+### fitted probabilities with observations
+## save as object
+nn_multinom_fit_probs_obs <-  
+  ## complete training data
+  comp_train_data %>%
+    ## filter for performance data
+    filter(hp_score == "Yes") %>%
+    ## select variables
+    select(UNIQUE_ID, High_Performer, Retained, Protected_Group, hp_ret_pg) %>%
+    ## bind columns
+    bind_cols(
+      # data
+      nn_multinom_fit_probs
+    ) %>%
+    ## rows
+    rowwise() %>%
+    ## add variables
+    mutate(
+      # class prediction
+      class_pred = which.max(
+        # variables
+        c_across(.pred_nhp_yret_npg:.pred_yhp_nret_npg)
+      )
+    ) %>%
+    ## remove groups
+    ungroup() %>%
+    ## update variables
+    mutate(
+      # convert to factor
+      class_pred = as_factor(class_pred),
+      # recode factor levels
+      class_pred = fct_recode(
+        # factor
+        class_pred,
+        # levels
+        "nhp_yret_npg" = "1", "yhp_nret_ypg" = "2", 
+        "nhp_nret_ypg" = "3", "yhp_yret_npg" = "4", 
+        "yhp_yret_ypg" = "5", "nhp_yret_ypg" = "6", 
+        "nhp_nret_npg" = "7", "yhp_nret_npg" = "8"
+      ),
+      # relevel factors
+      across(
+        # columns
+        .cols = c(hp_ret_pg, class_pred),
+        # function
+        .fns = ~ fct_relevel(
+          # factors
+          .,
+          # relevel
+          "nhp_nret_npg", "nhp_nret_ypg",
+          "nhp_yret_npg", "nhp_yret_ypg",
+          "yhp_nret_npg", "yhp_nret_ypg",
+          "yhp_yret_npg", "yhp_yret_ypg"
+        )
+      )
+    )
+```
+
+## Evaluate Predictions
+
+Evaluate predictions on test set.
+
+```{r}
+### logistic regression
+## save as object
+glm_hp_split_test <- hp_split_test %>%
+  ## select outcomes
+  select(High_Performer) %>%
+  ## bind columns
+  bind_cols(
+    ## predict
+    predict(
+      # fitted model
+      glm_hp_fit,
+      # test data
+      new_data = hp_split_test,
+      # type
+      type = "prob"
+    ) %>%
+    ## rename
+    rename(no_hp = .pred_0, yes_hp = .pred_1)
+  )
+
+### elastic net
+## save as object
+glmnet_hp_split_test <- hp_split_test %>%
+  ## select outcomes
+  select(High_Performer) %>%
+  ## bind columns
+  bind_cols(
+    ## predict
+    predict(
+      # fitted model
+      glmnet_hp_fit,
+      # test data
+      new_data = hp_split_test,
+      # type
+      type = "prob"
+    ) %>%
+    ## rename
+    rename(no_hp = .pred_0, yes_hp = .pred_1)
+  )
+
+### support vector machine
+## save as object
+svm_hp_split_test <- hp_split_test %>%
+  ## select outcomes
+  select(High_Performer) %>%
+  ## bind columns
+  bind_cols(
+    ## predict
+    predict(
+      # fitted model
+      svm_hp_fit,
+      # test data
+      new_data = hp_split_test,
+      # type
+      type = "prob"
+    ) %>%
+    ## rename
+    rename(no_hp = .pred_0, yes_hp = .pred_1)
+  )
+
+### elastic net
+## save as object
+glmnet_hp_pg_filt_split_test <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_hp_pg_filt_fit,
+    # test data
+    new_data = hp_split_test,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_pg = .pred_0, yes_hp_pg = .pred_1)
+
+### logistic regression
+## save as object
+glm_ret_split_test <- hp_split_test %>%
+  ## select outcomes
+  select(Retained) %>%
+  ## bind columns
+  bind_cols(
+    ## predict
+    predict(
+      # fitted model
+      glm_ret_fit_comp_rec,
+      # test data
+      new_data = hp_split_test,
+      # type
+      type = "prob"
+    ) %>%
+    ## rename
+    rename(no_ret = .pred_0, yes_ret = .pred_1)
+  )
+
+### elastic net
+## save as object
+glmnet_ret_split_test <- hp_split_test %>%
+  ## select outcomes
+  select(Retained) %>%
+  ## bind columns
+  bind_cols(
+    ## predict
+    predict(
+      # fitted model
+      glmnet_ret_fit_comp_rec,
+      # test data
+      new_data = hp_split_test,
+      # type
+      type = "prob"
+    ) %>%
+    ## rename
+    rename(no_ret = .pred_0, yes_ret = .pred_1)
+  )
+
+### elastic net
+## save as object
+glmnet_pg_split_test <- hp_split_test %>%
+  ## select outcomes
+  select(Protected_Group) %>%
+  ## bind columns
+  bind_cols(
+    ## predict
+    predict(
+      # fitted model
+      glmnet_pg_fit_comp_rec,
+      # test data
+      new_data = hp_split_test,
+      # type
+      type = "prob"
+    ) %>%
+    ## rename
+    rename(no_pg = .pred_0, yes_pg = .pred_1)
+  )
+
+### join data
+## save as object
+glm_split_test <- hp_split_test %>%
+  ## select variables
+  select(UNIQUE_ID, Retained, Protected_Group) %>%
+  ## bind columns
+  bind_cols(
+    # high performer
+    glm_hp_split_test,
+    # high performer for protected group
+    #glmnet_hp_pg_filt_split_test,
+    # retained
+    #glmnet_ret_split_test,
+    # protected group
+    #glmnet_pg_split_test
+  ) 
+
+### join data
+## save as object
+glmnet_split_test <- hp_split_test %>%
+  ## select variables
+  select(UNIQUE_ID) %>%
+  ## bind columns
+  bind_cols(
+    # high performer
+    glmnet_hp_split_test,
+    # high performer for protected group
+    #glmnet_hp_pg_filt_split_test,
+    # retained
+    glmnet_ret_split_test,
+    # protected group
+    glmnet_pg_split_test
+  ) 
+
+### join data
+## save as object
+svm_split_test <- hp_split_test %>%
+  ## select variables
+  select(UNIQUE_ID, Retained, Protected_Group) %>%
+  ## bind columns
+  bind_cols(
+    # high performer
+    svm_hp_split_test,
+    # high performer for protected group
+    #glmnet_hp_pg_filt_split_test,
+    # retained
+    #glmnet_ret_split_test,
+    # protected group
+    #glmnet_pg_split_test
+  ) 
+
+### join data
+## save as object
+ensemble_split_test <- hp_split_test %>%
+  ## select variables
+  select(UNIQUE_ID, High_Performer, Retained, Protected_Group) %>%
+  ## bind columns
+  bind_cols(
+    # glmnet high performer
+    glmnet_hp_split_test %>%
+      # select
+      select(-High_Performer) %>%
+      # rename
+      rename(no_hp_en = no_hp, yes_hp_en = yes_hp),
+    # svm high performer
+    svm_hp_split_test %>%
+      # select
+      select(-High_Performer) %>%
+      # rename
+      rename(no_hp_svm = no_hp, yes_hp_svm = yes_hp),
+    # glmnet retained
+    glmnet_ret_split_test %>%
+      # select
+      select(-Retained),
+    # glmnet protected group
+    glmnet_pg_split_test %>%
+      # select
+      select(-Protected_Group),
+  ) %>%
+  ## add variable
+  mutate(
+    # combine probabilities
+    yes_hp_ens = (yes_hp_en + yes_hp_svm) / 2
+  )
+
+### top high performers filtered
+## save as object
+split_test_top_hp_filt <- svm_split_test %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp, n = 1125
+  ) %>%
+  ## filter
+  #filter(
+    # conditions
+   # !(yes_hp < 0.406 & yes_pg < 0.47 & yes_ret < 0.5)
+  #) %>% 
+  ## select variables
+  select(UNIQUE_ID)
+
+### bottom high performers filtered
+## save as object
+split_test_bottom_hp_filt <- glmnet_split_test %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp, n = 1125
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    (yes_hp > 0.35 & yes_pg > 0.46 & yes_ret > 0.385)
+  ) %>% 
+  ## select variables
+  select(UNIQUE_ID)
+
+### combine high performers filtered
+## save as object
+split_test_hp_filt <- bind_rows(
+  # top filtered
+  split_test_top_hp_filt,
+  # bottom filtered
+  #split_test_bottom_hp_filt
+) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    glmnet_split_test,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### high performer accuracy
+## save as object
+hp_acc <- split_test_hp_filt %>%
+  ## count
+  count(High_Performer, Hire) %>%
+  ## groups
+  group_by(High_Performer) %>%
+  ## add variable
+  mutate(prop = n / sum(n)) %>%
+  ## remove groups
+  ungroup() %>%
+  ## filter
+  filter(
+    # condition
+    High_Performer == 1, Hire == 1
+  ) %>%
+  ## extract accuracy
+  pull(prop)
+
+### retained accuracy
+## save as object
+ret_acc <- split_test_hp_filt %>%
+  ## count
+  count(Retained, Hire) %>%
+  ## groups
+  group_by(Retained) %>%
+  ## add variable
+  mutate(prop = n / sum(n)) %>%
+  ## remove groups
+  ungroup() %>%
+  ## filter
+  filter(
+    # condition
+    Retained == 1, Hire == 1
+  ) %>%
+  ## extract accuracy
+  pull(prop)
+
+### high performer and retained accuracy
+## save as object
+hp_ret_acc <- split_test_hp_filt %>%
+  ## count
+  count(High_Performer, Retained, Hire) %>%
+  ## groups
+  group_by(High_Performer, Retained) %>%
+  ## add variable
+  mutate(prop = n / sum(n)) %>%
+  ## remove groups
+  ungroup() %>%
+  ## filter
+  filter(
+    # condition
+    High_Performer == 1, Retained == 1, Hire == 1
+  ) %>%
+  ## extract accuracy
+  pull(prop)
+
+### protected group AIR
+## save as object
+pg_air <- split_test_hp_filt %>%
+  ## count
+  count(Protected_Group, Hire) %>%
+  ## groups
+  group_by(Protected_Group) %>%
+  ## add variable
+  mutate(prop = n / sum(n)) %>%
+  ## remove groups
+  ungroup() %>%
+  ## filter
+  filter(
+    # condition
+    (Protected_Group == 1 & Hire == 1) |
+      # condition
+      (Protected_Group == 0 & Hire == 1)
+  ) %>%
+  ## pivot wider
+  pivot_wider(
+    # id
+    id_cols = Protected_Group,
+    # names
+    names_from = Protected_Group,
+    # values
+    values_from = prop
+  ) %>%
+  ## rename
+  rename(npg = `0`, ypg = `1`) %>%
+  ## add variable
+  mutate(air = ypg / npg) %>%
+  ## extract
+  pull(air)
+
+### compute overall score
+## formula
+hp_acc*25 + ret_acc*25 + hp_ret_acc*50 - abs(1 - pg_air)*100
+
+### random forest
+## save as object
+rf_perf_pred <- perf_data_test %>%
+  ## select outcome
+  select(High_Performer, Retained, Protected_Group) %>%
+  ## bind columns
+  bind_cols(
+    ## predict
+    predict(
+      # fitted model
+      rf_perf_fit,
+      # test data
+      new_data = perf_data_test,
+      # type
+      type = "prob"
+    ) 
+  )
+
+### compute area under ROC curve
+## call function
+roc_auc(
+  # data
+  data = rf_perf_pred,
+  # observed
+  truth = High_Performer,
+  # predicted
+  .pred_1,
+  # truth event
+  event_level = "second"
+)
+
+### random forest
+## save as object
+rf_perf_roc <- roc_curve(
+  # data
+  rf_perf_pred,
+  # truth
+  truth = High_Performer,
+  # prediction
+  .pred_1,
+  # truth event
+  event_level = "second"
+)
+
+### plot ROC curves
+## save as object
+ggplot() +
+  ## add dotted diagonal line
+  geom_abline(linetype = 2, color = "gray") +
+  ## add fourth model
+  geom_path(
+    # model
+    data = rf_perf_roc,
+    # mapping
+    mapping = aes(x = 1 - specificity, y = sensitivity, color = "rf"),
+  ) +
+  ## add colors
+  scale_color_manual(
+    # matching vector
+    values = c(
+      "rf" = "#99FF00"
+    )
+  ) +
+  ## axes and legend labels
+  labs(x = "False Positive Rate", y = "True Positive Rate", color = "Model") +
+  ## alter theme
+  theme_bw() +
+  ## move legend to bottom
+  theme(legend.position = "bottom")
+```
+
+## Development Data Predictions
+
+Make predictions on development data.
+
+```{r}
+### logistic regression
+## save as object
+dev_glm_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glm_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_glm = .pred_0, yes_hp_glm = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_en = .pred_0, yes_hp_en = .pred_1)
+
+### random forest
+## save as object
+dev_rf_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    rf_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_rf = .pred_0, yes_hp_rf = .pred_1)
+
+### bagged mars
+## save as object
+dev_bag_mars_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    bag_mars_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_bm = .pred_0, yes_hp_bm = .pred_1)
+
+### flexible discriminant
+## save as object
+dev_fd_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    fd_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_fd = .pred_0, yes_hp_fd = .pred_1)
+
+### linear discriminant
+## save as object
+dev_ld_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    ld_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_ld = .pred_0, yes_hp_ld = .pred_1)
+
+### support vector machine
+## save as object
+dev_svm_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    svm_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_svm = .pred_0, yes_hp_svm = .pred_1)
+
+### neural network
+## save as object
+dev_nn_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    nn_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_nn = .pred_0, yes_hp_nn = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_ret_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_ret_fit_hp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_yhp_en = .pred_0, yes_ret_yhp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_ret_no_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_ret_fit_comp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_nhp_en = .pred_0, yes_ret_nhp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_fd_ret_comp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    fd_ret_fit_comp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_fd = .pred_0, yes_ret_fd = .pred_1)
+
+### neural network
+## save as object
+dev_nn_ret_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    nn_ret_hp_rec_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_yhp_nn = .pred_0, yes_ret_yhp_nn = .pred_1)
+
+### neural network
+## save as object
+dev_nn_ret_no_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    nn_ret_no_hp_rec_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_nhp_nn = .pred_0, yes_ret_nhp_nn = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_pg_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_pg_fit_hp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_yhp_en = .pred_0, yes_pg_yhp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_pg_no_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_pg_fit_no_hp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_nhp_en = .pred_0, yes_pg_nhp_en = .pred_1)
+
+### flexible discriminant
+## save as object
+dev_fd_pg_comp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    fd_pg_fit_comp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_fd = .pred_0, yes_pg_fd = .pred_1)
+
+### random forest
+## save as object
+dev_rf_pg_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    rf_pg_fit_hp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg = .pred_0, yes_pg = .pred_1)
+
+### neural network
+## save as object
+dev_nn_pg_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    nn_pg_hp_rec_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_yhp_nn = .pred_0, yes_pg_yhp_nn = .pred_1)
+
+### neural network
+## save as object
+dev_nn_pg_no_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    nn_pg_no_hp_rec_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_nhp_nn = .pred_0, yes_pg_nhp_nn = .pred_1)
+
+### elastic net multinomial
+## save as object
+dev_glmnet_multinom_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_multinom_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  )
+
+### join data
+## save as object
+dev_data_pred <- dev_data %>%
+  ## select variables
+  select(UNIQUE_ID) %>%
+  ## bind columns
+  bind_cols(
+    # glmnet high performer
+    dev_glmnet_hp_pred,
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_glm <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_glm, n = 1125
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_en <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_en, n = 1125
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_rf <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_rf, n = 1125
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_bm <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_bm, n = 1125
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_fd <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_fd, n = 1125
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_ld <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_ld, n = 1125
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_svm <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_svm, n = 1125
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_nn <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_nn, n = 1125
+  )
+
+### top high performers hired
+## save as object
+dev_data_max_hire_avg <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_avg, n = 1125
+  )
+
+### combine high performers filtered
+## save as object
+dev_data_hire_avg <- dev_data_max_hire_avg %>%
+  ## select
+  select(UNIQUE_ID) %>%
+  ## add variable
+  mutate(
+    # hire
+    hire_avg = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, hire_avg) %>%
+  ## update variable
+  mutate(
+    # hire
+    hire_avg = replace_na(hire_avg, 0)
+  )
+
+### compare
+## save as object
+dev_data_max_hire <-     
+  ## data
+  dev_data_hire_glm %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_hire_en,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_hire_rf,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_hire_bm,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_hire_fd,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_hire_ld,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_hire_svm,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_hire_nn,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_hire_avg,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## rows
+  rowwise() %>%
+  ## add variables
+  mutate(
+    # sum eight models
+    sum_mods = sum(
+      # across
+      c_across(hire_glm:hire_avg)
+    )
+  ) %>%
+  ## remove groups
+  ungroup()
+
+### join tables
+## save as object
+dev_data_pred_max_hire <- 
+  ## data
+  dev_data_pred %>%
+  ## left join
+  left_join(
+    # data
+    dev_data_max_hire,
+    # key
+    by = "UNIQUE_ID"
+  )
+
+### hire where models agree
+## save as object
+dev_data_max_hire_top <- dev_data_pred_max_hire %>%
+  ## filter
+  filter(sum_mods >= 7) %>%
+  ## select
+  select(UNIQUE_ID) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) 
+
+### hire edge cases
+## save as object
+dev_data_max_hire_edge <- dev_data_pred_max_hire %>%
+  ## filter
+  filter(sum_mods <= 6) %>%
+  ## slice for maximum
+  slice_max(
+    # average probability
+    yes_hp_en, n = 307
+  ) %>%
+  ## select
+  select(UNIQUE_ID) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  )   
+
+### select hires
+## save as object
+dev_data_mods_hires <- bind_rows(
+  # data
+  dev_data_max_hire_top,
+  # data
+  dev_data_max_hire_edge
+) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+  
+### hire by weighted probabilities
+## save as object
+dev_data_hire_wgt_prob <- dev_data_pred %>%
+  ## add variables
+  mutate(
+    # weight probability
+    wgt_prob = 0.85*yes_hp_avg + 0.05*yes_ret_nhp_en + 0.10*yes_pg_yhp_en,
+    # weighted geometric probability
+    wgt_geom_prob = exp(
+      0.85*log(yes_hp_en_3) + 0.05*log(yes_ret_nhp_en) + 0.10*log(yes_pg_yhp_en)
+    )
+  ) %>%
+  ## slice max
+  slice_max(
+    # high performer
+    wgt_geom_prob, n = 1125
+  ) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### top high performers filtered
+## save as object
+dev_data_top_hp_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_en, n = 1125
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    !(yes_hp_en_avg < 0.395 & yes_ret_yhp_en < 0.65 & yes_pg_yhp_en < 0.4) 
+  )
+
+### bottom high performers filtered
+## save as object
+dev_data_bottom_hp_filt <- dev_data_pred %>%
+  ## add variables
+  mutate(
+    # average probability
+    yes_hp_en_avg = 
+      (yes_hp_en + yes_hp_en_2 + yes_hp_en_3 +
+         yes_hp_en_4 + yes_hp_en_5 + yes_hp_en_6 +
+         yes_hp_en_7) / 7
+  ) %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp_en_avg, n = 1125
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    (yes_hp_en_avg > 0.3495 & yes_ret_yhp_en > 0.44 & yes_pg_yhp_en > 0.47) 
+  )
+
+### top retained
+## save as object
+dev_data_top_ret_filt <- dev_data_pred %>%
+  ## filter
+  filter(
+    # condition
+    !UNIQUE_ID %in% dev_data_top_hp_filt$UNIQUE_ID
+  ) %>%   
+  ## slice max
+  slice_max(
+    # high performer
+    yes_ret_en_avg, n = 125
+  )
+
+### top protected group
+## save as object
+dev_data_top_pg_filt <- dev_data_pred %>%
+  ## filter
+  filter(
+    # condition
+    !UNIQUE_ID %in% dev_data_top_hp_filt$UNIQUE_ID
+  ) %>%   
+  ## slice max
+  slice_max(
+    # high performer
+    yes_pg_en_avg, n = 50
+  )
+
+### top combined
+## save as object
+dev_data_top_wgt_prob_filt <- dev_data_pred %>%
+  ## filter
+  filter(
+    # condition
+    !UNIQUE_ID %in% dev_data_top_hp_filt$UNIQUE_ID
+  ) %>%   
+  ## add variable
+  mutate(
+    # weight probability
+    wgt_prob = (0.4*yes_hp_en + 0.45*yes_hp_svm + 0.02*yes_ret_yhp_en + 0.13*yes_pg_yhp_en)
+  ) %>%
+  ## slice max
+  slice_max(
+    # high performer
+    wgt_prob, n = 50
+  )
+
+### top high performers retained protected group
+## save as object
+dev_data_top_yhp_yret_ypg_filt <- dev_data_pred %>%
+  ## filter
+  filter(
+    # condition
+    !UNIQUE_ID %in% dev_data_top_hp_filt$UNIQUE_ID
+  ) %>%   
+  ## slice max
+  slice_max(
+    # high performer
+    .pred_yhp_yret_ypg, n = 250
+  ) 
+
+### top high performers retained protected group
+## save as object
+dev_data_top_yhp_yret_npg_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    .pred_yhp_yret_npg, n = 200
+  ) %>%
+  ## pull
+  pull(UNIQUE_ID)
+
+### top high performers retained protected group
+## save as object
+dev_data_top_yhp_nret_ypg_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    .pred_yhp_nret_ypg, n = 200
+  ) %>%
+  ## pull
+  pull(UNIQUE_ID)
+
+### top high performers retained protected group
+## save as object
+dev_data_top_yhp_nret_npg_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    .pred_yhp_nret_npg, n = 200
+  ) %>%
+  ## pull
+  pull(UNIQUE_ID)
+
+### top high performers retained protected group
+## save as object
+dev_data_top_nhp_yret_ypg_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    .pred_nhp_yret_ypg, n = 200
+  ) %>%
+  ## pull
+  pull(UNIQUE_ID)
+
+### top high performers retained protected group
+## save as object
+dev_data_top_nhp_yret_npg_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    .pred_nhp_yret_npg, n = 200
+  ) %>%
+  ## pull
+  pull(UNIQUE_ID)
+
+### top high performers retained protected group
+## save as object
+dev_data_top_nhp_nret_ypg_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    .pred_nhp_nret_ypg, n = 200
+  ) %>%
+  ## pull
+  pull(UNIQUE_ID)
+
+### top high performers retained protected group
+## save as object
+dev_data_top_nhp_nret_npg_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    .pred_nhp_nret_npg, n = 200
+  ) %>%
+  ## pull
+  pull(UNIQUE_ID)
+
+### bottom high performers filtered
+## save as object
+dev_data_bottom_filt <- dev_data_pred %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp_en, n = 1375
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    (yes_hp_ensemble > 0.361135 & yes_ret > 0.38 & yes_pg > 0.48)
+  )
+
+### top high performers filtered
+## save as object
+dev_data_max_hire_en_3 <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_en_3, n = 1125
+  )
+
+### bottom high performers filtered
+## save as object
+dev_data_min_hire_en <- dev_data_pred %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp_en, n = 1125
+  )
+
+### combine high performers filtered
+## save as object
+dev_data_hire <- bind_rows(
+  # top filtered
+  dev_data_top_hp_filt,
+  # bottom filtered
+  #dev_data_bottom_hp_filt
+) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### top high performers filtered
+## save as object
+dev_data_max_hire_svm <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_svm, n = 1125
+  )
+
+### bottom high performers filtered
+## save as object
+dev_data_min_hire_svm <- dev_data_pred %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp_svm, n = 1125
+  )
+
+### combine high performers filtered
+## save as object
+dev_data_hire_svm <- bind_rows(
+  # top filtered
+  dev_data_max_hire_svm,
+  # bottom filtered
+  #dev_data_min_hire_svm
+) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### top high performers filtered
+## save as object
+dev_data_max_hire_nn <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_nn, n = 1125
+  )
+
+### bottom high performers filtered
+## save as object
+dev_data_min_hire_nn <- dev_data_pred %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp_nn, n = 1125
+  )
+
+### combine high performers filtered
+## save as object
+dev_data_hire_nn <- bind_rows(
+  # top filtered
+  dev_data_max_hire_nn,
+  # bottom filtered
+  #dev_data_min_hire_nn
+) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### hire comparison
+## save as object
+dev_data_hire <- 
+  ## first set
+  dev_data_hire_en %>%
+    ## rename
+    rename(hire_en = Hire) %>%
+    ## join data
+    left_join(
+      # data
+      dev_data_hire_en_2 %>%
+        # rename
+        rename(hire_en_2 = Hire),
+      # key
+      by = "UNIQUE_ID"
+    ) %>%
+    ## join data
+    left_join(
+      # data
+      dev_data_hire_en_3 %>%
+        # rename
+        rename(hire_en_3 = Hire),
+      # key
+      by = "UNIQUE_ID"
+    ) %>%
+    ## join data
+    left_join(
+      # data
+      dev_data_hire_svm %>%
+        # rename
+        rename(hire_svm = Hire),
+      # key
+      by = "UNIQUE_ID"
+    ) %>%
+    ## join data
+    left_join(
+      # data
+      dev_data_hire_nn %>%
+        # rename
+        rename(hire_nn = Hire),
+      # key
+      by = "UNIQUE_ID"
+    )
+
+### top high performers filtered
+## save as object
+dev_data_top_hp_ret_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp, n = 1125
+  ) %>%
+  ## slice max
+  slice_max(
+    # retained
+    yes_ret, n = 1095
+  )
+
+### bottom high performers filtered
+## save as object
+dev_data_bottom_hp_pg_filt <- dev_data_pred %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp, n = 1125
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    (yes_hp > 0.35 & yes_pg > 0.565)
+  )
+
+### combine high performers filtered
+## save as object
+dev_data_hp_ret_pg_filt <- bind_rows(
+  # top filtered
+  dev_data_top_hp_ret_filt,
+  # bottom filtered
+  dev_data_bottom_hp_pg_filt
+) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### top retained
+## save as object
+dev_data_top_ret <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_ret, n = 1125
+  )
+
+### top protected group
+## save as object
+dev_data_top_pg <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_pg, n = 1125
+  )
+
+### top non-protected group
+## save as object
+dev_data_top_npg <- dev_data_pred %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_pg, n = 1125
+  )
+
+### top high performers
+## save as object
+top_hp_sel <- dev_data_top_hp %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp, n = 847
+  ) %>%
+  ## pull id
+  pull(UNIQUE_ID)
+
+
+### top retained
+## save as object
+top_ret_sel <- dev_data_top_ret %>%
+  ## filter
+  filter(!UNIQUE_ID %in% top_hp_sel) %>%
+  ## slice max
+  slice_max(
+    # retained
+    yes_ret, n = 757
+  ) %>%
+  ## pull id
+  pull(UNIQUE_ID)
+
+### top protected group
+## save as object
+top_pg_sel <- dev_data_top_pg %>%
+  ## filter
+  filter(
+    # first condition
+    !UNIQUE_ID %in% top_hp_sel,
+    # second condition
+    UNIQUE_ID %in% top_ret_sel
+  ) %>%
+  ## slice max
+  slice_max(
+    # retained
+    yes_pg, n = 158
+  ) %>%
+  ## pull id
+  pull(UNIQUE_ID)
+
+### top non-protected group
+## save as object
+top_npg_sel <- dev_data_top_npg %>%
+  ## filter
+  filter(
+    # first condition
+    !UNIQUE_ID %in% top_hp_sel,
+    # second condition
+    UNIQUE_ID %in% top_ret_sel
+  ) %>%
+  ## slice min
+  slice_min(
+    # retained
+    yes_pg, n = 120
+  ) %>%
+  ## pull id
+  pull(UNIQUE_ID)
+
+### top selected
+## save as object
+top_sel <- c(top_hp_sel, top_pg_sel, top_npg_sel)
+
+### hire by performance
+## save as object
+dev_data_hire_top_sel <- dev_data_pred %>%
+  ## filter
+  filter(
+    # top selected
+    UNIQUE_ID %in% top_sel
+  ) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### combine probabilities
+## save as object
+dev_data_hire_comb_prob <- dev_data_pred %>% 
+  ## add variables
+  mutate(
+    # combined probabilities
+    yes_comb_prob = yes_hp * yes_ret * yes_pg
+  ) %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_comb_prob, n = 1125
+  ) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### filter probabilities
+## save as object
+dev_data_hire_filt_prob <- dev_data_pred %>% 
+  ## filter
+  filter(
+    # combined probabilities
+    yes_hp > 0.45 | yes_ret > 0.5301
+  ) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### performance filter
+## save as object
+dev_data_hire_filter_hp <- dev_data_pred %>%
+  ## filter
+  filter(
+    # combined probabilities
+    yes_hp > 0.43 | no_hp > 0.692
+  ) %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data_pred %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+
+### elastic net
+## save as object
+dev_glmnet_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_hp_fit,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_en = .pred_0, yes_hp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_ret_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_ret_fit_hp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_yhp_en = .pred_0, yes_ret_yhp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_ret_no_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_ret_fit_no_hp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_nhp_en = .pred_0, yes_ret_nhp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_ret_comp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_ret_fit_comp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_comp_en = .pred_0, yes_ret_comp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_pg_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_pg_fit_hp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_yhp_en = .pred_0, yes_pg_yhp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_pg_no_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_pg_fit_no_hp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_nhp_en = .pred_0, yes_pg_nhp_en = .pred_1)
+
+### elastic net
+## save as object
+dev_glmnet_pg_comp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_pg_fit_comp_rec,
+    # test data
+    new_data = dev_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_comp_en = .pred_0, yes_pg_comp_en = .pred_1)
+
+### join data
+## save as object
+dev_data_pred <- dev_data %>%
+  ## select variables
+  select(UNIQUE_ID) %>%
+  ## bind columns
+  bind_cols(
+    # glmnet high performer
+    dev_glmnet_hp_pred,
+    # glmnet retained high performer
+    dev_glmnet_ret_hp_rec_pred,
+    # glmnet retained no high performer
+    dev_glmnet_ret_no_hp_rec_pred,
+    # glmnet retained complete
+    dev_glmnet_ret_comp_rec_pred,
+    # glmnet protected group high performer
+    dev_glmnet_pg_hp_rec_pred,
+    # glmnet protected group no high performer
+    dev_glmnet_pg_no_hp_rec_pred,
+    # glmnet protected group complete
+    dev_glmnet_pg_comp_rec_pred
+  )
+
+### top high performers filtered
+## save as object
+dev_data_top_hp_filt <- dev_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_en, n = 1125
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    !(yes_hp_en < 0.4 & yes_ret_yhp_en < 0.69 & yes_pg_yhp_en < 0.27)
+  )
+
+### bottom high performers filtered
+## save as object
+dev_data_bottom_hp_filt <- dev_data_pred %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp_en, n = 1125
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    (yes_hp_en > 0.3 & yes_ret_yhp_en > 0.6 & yes_pg_yhp_en > 0.458)
+  )
+
+### all three high
+## save as object
+dev_data_filt_1 <- dev_data_pred %>% 
+  ## filter
+  filter(
+    # conditions
+    yes_hp_en > 0.422 & yes_ret_yhp_en > 0.635 & yes_pg_yhp_en > 0.324
+  )
+
+### hp and ret high
+## save as object
+dev_data_filt_2 <- dev_data_pred %>% 
+  ## filter
+  filter(
+    # exclude previous
+    !UNIQUE_ID %in% dev_data_filt_1$UNIQUE_ID,
+    # conditions
+    yes_hp_en > 0.369 & yes_ret_yhp_en > 0.6 & yes_pg_yhp_en > 0.09
+  ) 
+
+### ret and pg high
+## save as object
+dev_data_filt_3 <- dev_data_pred %>% 
+  ## filter
+  filter(
+    # exclude previous
+    !UNIQUE_ID %in% dev_data_filt_1$UNIQUE_ID,
+    # exclude previous
+    !UNIQUE_ID %in% dev_data_filt_2$UNIQUE_ID,
+    # conditions
+    yes_hp_en > 0.2413 & yes_ret_yhp_en > 0.5745 & yes_pg_yhp_en > 0.253
+  ) 
+
+### ret high
+## save as object
+dev_data_filt_4 <- dev_data_pred %>% 
+  ## filter
+  filter(
+    # exclude previous
+    !UNIQUE_ID %in% dev_data_filt_1$UNIQUE_ID,
+    # exclude previous
+    !UNIQUE_ID %in% dev_data_filt_2$UNIQUE_ID,
+    # exclude previous
+    !UNIQUE_ID %in% dev_data_filt_3$UNIQUE_ID,
+    # conditions
+    yes_hp_en > 0.295 & yes_ret_yhp_en > 0.562385 & yes_pg_yhp_en > 0.065
+  ) 
+
+### hired
+## save as object
+dev_data_hired <- bind_rows(
+  # first group
+  dev_data_filt_1,
+  # second group
+  dev_data_filt_2,
+  # third group
+  dev_data_filt_3,
+  # fourth group
+  dev_data_filt_4
+)
+
+### summarize
+## call data
+dev_data_hired %>%
+  ## summarize
+  summarize(
+    # across variables
+    across(
+      # columns
+      .cols = contains("yes"),
+      # function
+      .fns = ~ sum(., na.rm = TRUE) / 1125
+    )
+  )
+
+### combine high performers filtered
+## save as object
+dev_data_submit <- 
+  ## hired
+  dev_data_hired %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    dev_data %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+```
+
+## Testing Data Predictions
+
+Make predictions on testing data.
+
+```{r}
+### elastic net
+## save as object
+test_glmnet_hp_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_hp_fit,
+    # test data
+    new_data = test_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_hp_en = .pred_0, yes_hp_en = .pred_1)
+
+### elastic net
+## save as object
+test_glmnet_ret_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_ret_fit_hp_rec,
+    # test data
+    new_data = test_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_yhp_en = .pred_0, yes_ret_yhp_en = .pred_1)
+
+### elastic net
+## save as object
+test_glmnet_ret_no_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_ret_fit_no_hp_rec,
+    # test data
+    new_data = test_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_nhp_en = .pred_0, yes_ret_nhp_en = .pred_1)
+
+### elastic net
+## save as object
+test_glmnet_ret_comp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_ret_fit_comp_rec,
+    # test data
+    new_data = test_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_ret_comp_en = .pred_0, yes_ret_comp_en = .pred_1)
+
+### elastic net
+## save as object
+test_glmnet_pg_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_pg_fit_hp_rec,
+    # test data
+    new_data = test_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_yhp_en = .pred_0, yes_pg_yhp_en = .pred_1)
+
+### elastic net
+## save as object
+test_glmnet_pg_no_hp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_pg_fit_no_hp_rec,
+    # test data
+    new_data = test_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_nhp_en = .pred_0, yes_pg_nhp_en = .pred_1)
+
+### elastic net
+## save as object
+test_glmnet_pg_comp_rec_pred <- 
+  ## predict
+  predict(
+    # fitted model
+    glmnet_pg_fit_comp_rec,
+    # test data
+    new_data = test_data,
+    # type
+    type = "prob"
+  ) %>%
+  ## rename
+  rename(no_pg_comp_en = .pred_0, yes_pg_comp_en = .pred_1)
+
+### join data
+## save as object
+test_data_pred <- test_data %>%
+  ## select variables
+  select(UNIQUE_ID) %>%
+  ## bind columns
+  bind_cols(
+    # glmnet high performer
+    test_glmnet_hp_pred,
+    # glmnet retained high performer
+    test_glmnet_ret_hp_rec_pred,
+    # glmnet retained no high performer
+    test_glmnet_ret_no_hp_rec_pred,
+    # glmnet retained complete
+    test_glmnet_ret_comp_rec_pred,
+    # glmnet protected group high performer
+    test_glmnet_pg_hp_rec_pred,
+    # glmnet protected group no high performer
+    test_glmnet_pg_no_hp_rec_pred,
+    # glmnet protected group complete
+    test_glmnet_pg_comp_rec_pred
+  )
+
+### top high performers filtered
+## save as object
+test_data_top_hp_filt <- test_data_pred %>%
+  ## slice max
+  slice_max(
+    # high performer
+    yes_hp_en, n = 1125
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    !(yes_hp_en < 0.415 & yes_ret_yhp_en < 0.715 & yes_pg_yhp_en < 0.23)
+  )
+
+### bottom high performers filtered
+## save as object
+test_data_bottom_hp_filt <- test_data_pred %>%
+  ## slice min
+  slice_min(
+    # high performer
+    yes_hp_en, n = 1125
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    yes_hp_en > 0.31 & yes_ret_yhp_en > 0.605 & yes_pg_yhp_en > 0.575
+  )
+
+### hired
+## save as object
+test_data_hired <- bind_rows(
+  # top filtered
+  test_data_top_hp_filt,
+  # bottom filtered
+  test_data_bottom_hp_filt
+)
+
+### summarize
+## call data
+test_data_hired %>%
+  ## summarize
+  summarize(
+    # across variables
+    across(
+      # columns
+      .cols = contains("yes"),
+      # function
+      .fns = ~ sum(., na.rm = TRUE) / 1125
+    )
+  )
+
+### combine high performers filtered
+## save as object
+test_data_submit <- 
+  ## hired
+  test_data_hired %>%
+  ## add variable
+  mutate(
+    # hire
+    Hire = 1
+  ) %>%
+  ## right join
+  right_join(
+    # data
+    test_data %>%
+      # select
+      select(UNIQUE_ID),
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## select
+  select(UNIQUE_ID, Hire) %>%
+  ## update variable
+  mutate(
+    # hire
+    Hire = replace_na(Hire, 0)
+  )
+```
+
+## Save Predictions
+
+Save predictions for submission.
+
+```{r}
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  test_data_pred,
+  ## use here() to export data to project directory
+  file = here(
+    "data", 
+    "submit", 
+    "test_glmnet_all_probs.csv"
+  )
+)
+
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  dev_data_pred,
+  ## use here() to export data to project directory
+  file = here(
+    "data", 
+    "submit", 
+    "many_models_probs_plus_multinom.csv"
+  )
+)
+
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  test_data_submit,
+  ## use here() to export data to project directory
+  file = here(
+    "data", 
+    "submit", 
+    "test_glmnet_hp_swap_5.csv"
+  )
+)
+
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  dev_data_submit,
+  ## use here() to export data to project directory
+  file = here(
+    "data", 
+    "submit", 
+    "dev_glmnet_retain_focus_3.csv"
+  )
+)
+
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  dev_data_hire_svm,
+  ## use here() to export data to project directory
+  file = here(
+    "data", 
+    "submit", 
+    "svm_hire_hp_only.csv"
+  )
+)
+
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  dev_data_hire_nn,
+  ## use here() to export data to project directory
+  file = here(
+    "data", 
+    "submit", 
+    "nn_hire_hp_only.csv"
+  )
+)
+
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  dev_data_hire_wgt_prob,
+  ## use here() to export data to project directory
+  file = here("data", "submit", "glmnet_all_features_mix_ret_pg_2.csv")
+)
+
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  dev_data_hire_filt_prob,
+  ## use here() to export data to project directory
+  file = here("data", "submit", "hire_filt_prob.csv")
+)
+
+### save working data
+## use write_csv() to export objects
+write_csv(
+  ## data
+  dev_data_hire_filter_hp,
+  ## use here() to export data to project directory
+  file = here("data", "submit", "hire_filt_hp.csv")
+)
+```
+

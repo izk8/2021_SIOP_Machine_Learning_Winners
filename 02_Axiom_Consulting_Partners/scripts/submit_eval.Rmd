@@ -1,0 +1,107 @@
+---
+title: "Evaluate Submissions"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+## global settings: print syntax
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This script evaluates submissions.
+
+## Load Libraries
+
+Load libraries for script.
+
+```{r, libraries}
+### here for project directory navigation
+library(here)
+
+### tidyverse for data manipulation and plotting
+library(tidyverse)
+```
+
+## Load Data
+
+Load data to join.
+
+```{r, data}
+### raw training data
+## save as object
+best_score <- read_csv(
+  ## file path 
+  here("data", "submit", "test_glmnet_hp_swap_2.csv")
+) %>%
+  ## rename
+  rename(hire_best = Hire)
+
+### raw training data
+## save as object
+contender <- read_csv(
+  ## file path 
+  here("data", "submit", "test_glmnet_hp_swap_5.csv")
+) %>%
+  ## rename
+  rename(hire_contend = Hire)
+
+### imputed and scored training data
+## save as object
+mod_probs <- read_csv(
+  ## file path 
+  here("data", "submit", "test_glmnet_all_probs.csv")
+)
+```
+
+## Join Tables
+
+Join data tables.
+
+```{r}
+### join tables
+## save as object
+comp_sub <- best_score %>%
+  ## left join
+  left_join(
+    # data
+    contender,
+    # key
+    by = "UNIQUE_ID"
+  ) %>%
+  ## left join
+  left_join(
+    # data
+    mod_probs,
+    # key
+    by = "UNIQUE_ID"
+  )
+```
+
+## Search
+
+Search for different conditions.
+
+```{r}
+### find top non-hired
+## call data
+comp_sub %>%
+  ## select
+  select(
+    # variables
+    UNIQUE_ID, hire_best, hire_contend,
+    # probabilities
+    yes_hp_en, yes_ret_yhp_en, yes_pg_yhp_en
+  ) %>%
+  ## filter
+  filter(
+    # conditions
+    hire_best != hire_contend
+  )
+```
+

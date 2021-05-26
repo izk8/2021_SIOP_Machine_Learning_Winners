@@ -1,0 +1,247 @@
+---
+title: "Combine Data Tables"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+## global settings: print syntax
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This script joins data tables.
+
+## Load Libraries
+
+Load libraries for script.
+
+```{r, libraries}
+### here for project directory navigation
+library(here)
+
+### tidyverse for data manipulation and plotting
+library(tidyverse)
+```
+
+## Load Data
+
+Load data to join.
+
+```{r, data}
+### raw training data
+## save as object
+train_raw <- read_csv(
+  ## file path 
+  here("data", "raw", "training_data.csv")
+)
+
+### imputed and scored training data
+## save as object
+train_scored <- read_csv(
+  ## file path 
+  here("data", "work", "train_scored.csv")
+)
+
+### raw training data
+## save as object
+dev_raw <- read_csv(
+  ## file path 
+  here("data", "raw", "development_data.csv")
+)
+
+### imputed and scored training data
+## save as object
+dev_scored <- read_csv(
+  ## file path 
+  here("data", "work", "dev_scored.csv")
+)
+
+### raw training data
+## save as object
+test_raw <- read_csv(
+  ## file path 
+  here("data", "raw", "participant_test.csv")
+)
+
+### imputed and scored training data
+## save as object
+test_scored <- read_csv(
+  ## file path 
+  here("data", "work", "test_scored.csv")
+)
+```
+
+## Select Variables
+
+Select variables from each data table.
+
+```{r}
+### select variables
+## save as object
+train_raw_sel <- train_raw %>%
+  ## select variables
+  select(
+    # id
+    UNIQUE_ID,
+    # outcomes
+    High_Performer:Retained
+  ) %>%
+  ## add variable
+  mutate(
+    # performance score indicator
+    hp_score = if_else(
+      # condition
+      !is.na(High_Performer),
+      # true
+      "Yes",
+      # false
+      "No"
+    )
+  )
+
+### select variables
+## save as object
+train_scored_sel <- train_scored %>%
+  ## select variables
+  select(
+    # situational judgment
+    SJ_Most_1_prop:SJ_Least_9_prop,
+    matches("SJ_(prod|mean)"),
+    SJ_Time_1:SJ_Time_9,
+    # scenario
+    Scenario1_1:Scenario2_8, 
+    Scenario1_Time:Scenario2_Time,
+    # biodata
+    biodata_D1:biodata_D5,
+    Biodata_01:Biodata_20,
+    # personality
+    matches("^PScale.+score$")
+  ) 
+
+### select variables
+## save as object
+dev_raw_sel <- dev_raw %>%
+  ## select variables
+  select(
+    # id
+    UNIQUE_ID
+  ) 
+
+### select variables
+## save as object
+dev_scored_sel <- dev_scored %>%
+  ## select variables
+  select(
+    # situational judgment
+    SJ_Most_1_prop:SJ_Least_9_prop,
+    matches("SJ_(prod|mean)"),
+    SJ_Time_1:SJ_Time_9,
+    # scenario
+    Scenario1_1:Scenario2_8, 
+    Scenario1_Time:Scenario2_Time,
+    # biodata
+    biodata_D1:biodata_D5,
+    Biodata_01:Biodata_20,
+    # personality
+    matches("^PScale.+score$")
+  ) 
+
+### select variables
+## save as object
+test_raw_sel <- test_raw %>%
+  ## select variables
+  select(
+    # id
+    UNIQUE_ID
+  ) 
+
+### select variables
+## save as object
+test_scored_sel <- test_scored %>%
+  ## select variables
+  select(
+    # situational judgment
+    SJ_Most_1_prop:SJ_Least_9_prop,
+    matches("SJ_(prod|mean)"),
+    SJ_Time_1:SJ_Time_9,
+    # scenario
+    Scenario1_1:Scenario2_8, 
+    Scenario1_Time:Scenario2_Time,
+    # biodata
+    biodata_D1:biodata_D5,
+    Biodata_01:Biodata_20,
+    # personality
+    matches("^PScale.+score$")
+  ) 
+```
+
+## Bind Tables
+
+Bind the columns of two data tables.
+
+```{r}
+### bind columns
+## save as object
+train_model <- train_raw_sel %>%
+  ## bind columns
+  bind_cols(
+    # data
+    train_scored_sel
+  ) 
+
+### bind columns
+## save as object
+dev_model <- dev_raw_sel %>%
+  ## bind columns
+  bind_cols(
+    # data
+    dev_scored_sel
+  ) 
+
+### bind columns
+## save as object
+test_model <- test_raw_sel %>%
+  ## bind columns
+  bind_cols(
+    # data
+    test_scored_sel
+  ) 
+```
+
+## Save Data
+
+Save joined data.
+
+```{r}
+### save as data file
+## call function
+write_csv(
+  # object
+  train_model,
+  # path
+  here("data", "work", "train_model.csv")
+)
+
+### save as data file
+## call function
+write_csv(
+  # object
+  dev_model,
+  # path
+  here("data", "work", "dev_model.csv")
+)
+
+### save as data file
+## call function
+write_csv(
+  # object
+  test_model,
+  # path
+  here("data", "work", "test_model.csv")
+)
+```

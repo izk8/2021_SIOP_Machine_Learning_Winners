@@ -1,0 +1,115 @@
+---
+title: "Combine Imputations"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, setup, include=FALSE}
+## set global chunk options
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+This script combines imputations on the feature items.
+
+## Load Libraries
+
+Load libraries to perform missing data analyses.
+
+```{r}
+### here for project directory navigation
+library(here)
+
+### tidyverse for data manipulation and plotting
+library(tidyverse)
+```
+
+## Load Data
+
+Load data to combine.
+
+```{r}
+### load data
+## sjt and biodata
+sjt_biodata <- read_csv(here("data", "imputed", "sjt_biodata_mf_test.csv"))
+
+## sjt and biodata errors
+sjt_biodata_error <- read_csv(here("data", "imputed", "sjt_biodata_mf_errors.csv"))
+
+## personality
+personality <- read_csv(here("data", "imputed", "personality_mf_test.csv"))
+
+## personality errors
+personality_error <- read_csv(here("data", "imputed", "personality_mf_errors.csv"))
+
+## scenario
+scenario <- read_csv(here("data", "imputed", "scenario_mf_test.csv"))
+
+## scenario errors
+scenario_error <- read_csv(here("data", "imputed", "scenario_mf_errors.csv"))
+
+## time
+time <- read_csv(here("data", "imputed", "time_mf_test.csv"))
+
+## time errors
+time_error <- read_csv(here("data", "imputed", "time_mf_errors.csv"))
+```
+
+## Bind Data
+
+Bind the columns of the data.
+
+```{r}
+### items
+## save as object
+all_items <- bind_cols(
+  # sjt and biodata items
+  sjt_biodata,
+  # personality items
+  personality,
+  # scenario items
+  scenario,
+  # time items
+  time
+)
+
+### errors
+## save as object
+all_items_errors <- bind_rows(
+  # sjt and biodata items
+  sjt_biodata_error,
+  # personality items
+  personality_error,
+  # scenario items
+  scenario_error,
+  # time items
+  time_error
+)
+```
+
+## Save Objects
+
+Save combined data.
+
+```{r}
+### save imputed data
+## call function
+write_csv(
+  # imputed data
+  all_items,
+  # path
+  file = here("data", "imputed", "test_sep_mf_all_items.csv")
+)
+
+### save errors of imputed data
+## call function
+write_csv(
+  # imputed data
+  all_items_errors,
+  # path
+  file = here("data", "imputed", "train_sep_mf_all_items_errors.csv")
+)
+```
+
