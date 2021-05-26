@@ -1,16 +1,16 @@
 # 2021 SIOP Machine Learning Winners
 Data and Code for the 2020-2021 SIOP Machine Learning Competition
+ 
+### Introduction ###
+All important decisions in life involve trade-offs. A potential mate may be stunningly attractive, but what if they are incompatible? You might find the home of your dreams but not in the neighborhood you want.  Making great decisions requires balancing competing criteria and finding the optimal outcome. Hiring is no different. To hire effectively one must not only maximize outcomes for the business but also comply with legal requirements.  This is often called the “diversity-validity trade-off.”  This competition was about developing algorithms that simultaneously maximize business outcomes of job performance and retention while minimizing bias.
 
-### Overview ###
-* [Competition Overview and Awards Presentation](https://github.com/izk8/2021_SIOP_Machine_Learning_Winners/blob/main/2021%20SIOP%20ML%20Comp%20Deck.pdf) 
-
-### Objective ###
-  
-
-### Data ###
+### Competition Portal and Details ###
+* The [competition portal](https://eval.ai/web/challenges/challenge-page/527/overview) will provide lots of details about the data, the goal, and FAQ's about the data. 
 
 
 # Winners #
+## Awards Presentation ##
+* [Competition Overview and Awards Presentation](https://github.com/izk8/2021_SIOP_Machine_Learning_Winners/blob/main/2021%20SIOP%20ML%20Comp%20Deck.pdf)
 
 ## First Place: Team Procrustination  ##  
 Feng Guo @ BGSU  
@@ -33,8 +33,6 @@ Private Test Set Overall Score = 60.72
 # Organizers #
 [Nick Koenig](https://www.linkedin.com/in/nick-koenig-69699a27/) @ [Modern Hire](https://www.modernhire.org)   
 [Isaac Thompson](https://www.linkedin.com/in/thompsonisaac/) @ [Modern Hire](https://www.modernhire.org)  
-
-
 
 
 ### How to Cite Data
